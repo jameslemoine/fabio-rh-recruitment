@@ -863,35 +863,62 @@
     const textLines = (el) => (el.innerText || '').split('\n').map(l => l.trim()).filter(Boolean);
 
     // Clique chaque onglet, attend que le contenu change puis garde uniquement les lignes propres à l'onglet
+    // Plus petit bloc (hors barre d'onglets) contenant la première et la dernière ligne qui ont changé
+    function findPanelByLines(root, tablist, changed) {
+        if (!changed.length) return null;
+        const first = changed[0], last = changed[changed.length - 1];
+        let best = null, bestLen = Infinity;
+        for (const el of root.querySelectorAll('div, section, ul, table')) {
+            if (el.contains(tablist)) continue;
+            const t = el.innerText || '';
+            if (t.length < bestLen && t.includes(first) && t.includes(last)) { best = el; bestLen = t.length; }
+        }
+        return best;
+    }
+
+    async function showTab(root, tab) {
+        if (tab.getAttribute('aria-selected') === 'true') return;
+        const before = root.innerText;
+        tab.click();
+        for (let k = 0; k < 15; k++) {
+            await sleep(POLL_MS);
+            if (root.innerText !== before) break;
+        }
+        await sleep(POLL_MS); // laisse le contenu finir de s'afficher
+    }
+
+    // Parcourt chaque onglet puis revient au premier ; le contenu d'un onglet est repéré
+    // grâce aux lignes qui ont changé par rapport à l'onglet affiché juste avant
     async function readProfileTabs(profileEl) {
         const found = findProfileTabs(profileEl);
         if (!found || found.tabs.length === 0) return { root: profileEl, sections: [{ titre: 'Profil', lignes: textLines(profileEl) }] };
 
         const { root, tablist, tabs } = found;
-        const htmls = [];
         const labels = tabs.map(t => (t.innerText || t.textContent || '').trim() || 'Onglet');
-        const raw = [];
-        let previous = root.innerText;
-        for (let i = 0; i < tabs.length; i++) {
-            if (tabs[i].getAttribute('aria-selected') !== 'true') {
-                tabs[i].click();
-                for (let k = 0; k < 15; k++) {
-                    await sleep(POLL_MS);
-                    if (root.innerText !== previous) break;
-                }
-                await sleep(POLL_MS); // laisse le contenu finir de s'afficher
+        const raw = new Array(tabs.length), htmls = new Array(tabs.length);
+        const order = tabs.length > 1 ? [...tabs.keys(), 0] : [0];
+        let prevLines = null;
+        for (let step = 0; step < order.length; step++) {
+            const i = order[step];
+            await showTab(root, tabs[i]);
+            const lines = textLines(root);
+            if (prevLines) {
+                const prevSet = new Set(prevLines);
+                const panel = findPanelByLines(root, tablist, lines.filter(l => !prevSet.has(l))) || findTabPanel(root, tablist);
+                if (panel) htmls[i] = cloneGameHtml(panel);
             }
-            previous = root.innerText;
-            raw.push(textLines(root));
-            const panel = findTabPanel(root, tablist);
-            htmls.push(panel ? cloneGameHtml(panel) : '');
+            if (raw[i] === undefined) raw[i] = lines;
+            prevLines = lines;
         }
-        if (tabs[0].getAttribute('aria-selected') !== 'true') tabs[0].click();
+        if (tabs.length === 1) {
+            const panel = findTabPanel(root, tablist);
+            if (panel) htmls[0] = cloneGameHtml(panel);
+        }
 
         // Les lignes présentes dans tous les onglets (en-tête, noms des onglets) ne sont pas du contenu
         const common = raw.length > 1 ? new Set(raw[0].filter(l => raw.every(r => r.includes(l)))) : new Set();
         labels.forEach(l => common.add(l));
-        return { root, sections: raw.map((lignes, i) => ({ titre: labels[i], html: htmls[i], lignes: lignes.filter(l => !common.has(l)) })) };
+        return { root, sections: raw.map((lignes, i) => ({ titre: labels[i], html: htmls[i] || '', lignes: lignes.filter(l => !common.has(l)) })) };
     }
 
     async function analyzeProfile(username) {
