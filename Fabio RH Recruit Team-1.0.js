@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         Fabio RH Recruit Team
 // @namespace    https://raw.githack.com/jameslemoine/fabio-rh-recruitment/main/Fabio%20RH%20Recruit%20Team-1.0.js
-// @version      1.08
+// @version      1.09
 // @description  RH Tool for guild-free player
 // @author       Yloise and Claude
 // @run-at       document-start
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
 // @copyright    2026 Fabio Lucci - Tous droits reserves - Yloise
-// @resource     FABIO_CSS https://cdn.jsdelivr.net/gh/jameslemoine/fabio-rh-recruitment@7e6de6804799012c7087cc582de4b1c22636560b/fabio-rh.css
+// @resource     FABIO_CSS https://cdn.jsdelivr.net/gh/jameslemoine/fabio-rh-recruitment@6dedce09a898546e7ea4c1c4de4908746228e7fc/fabio-rh.css
 // @grant        GM_getResourceText
 // @license      All Rights Reserved; This script is proprietary and cannot be copied, modified, or distributed without explicit permission.
 // ==/UserScript==
@@ -571,7 +571,7 @@
                     <span>⏳ Age <b>${esc(p.stats.age)}</b></span>
                 </div>` : '';
             return `<li class="mwi-r-card ${cat}">
-                <div class="mwi-r-name"><span><span class="mwi-r-player" data-player="${esc(p.nom)}" title="Voir le profil" style="${nameStyle}">${esc(p.nom)}</span>${p.ironcow ? '<span class="mwi-r-iron" title="Ironcow">🐄</span>' : ''}</span><span class="mwi-r-tag">${tag}</span></div>
+                <div class="mwi-r-name"><span><span class="mwi-r-player" data-player="${esc(p.nom)}" title="Voir le profil" style="${nameStyle}">${esc(p.nom)}</span>${p.ironcow ? '<span class="mwi-r-iron" title="Ironcow">🐄</span>' : ''}</span><span class="mwi-r-right"><button class="mwi-r-player mwi-r-profile" data-player="${esc(p.nom)}" title="Ouvrir le profil">Profile</button><span class="mwi-r-tag">${tag}</span></span></div>
                 ${stats}
             </li>`;
         }).join('');
