@@ -7,7 +7,7 @@
 // @run-at       document-start
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
-// @copyright    2026, Yloise (https://github.com/Yloise)
+// @copyright    2026 Fabio Lucci - Tous droits reserves - Yloise
 // @resource     FABIO_CSS https://cdn.jsdelivr.net/gh/jameslemoine/fabio-rh-recruitment@7e6de6804799012c7087cc582de4b1c22636560b/fabio-rh.css
 // @grant        GM_getResourceText
 // @license      All Rights Reserved; This script is proprietary and cannot be copied, modified, or distributed without explicit permission.
