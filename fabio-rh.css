@@ -44,6 +44,14 @@
 #mwi-radar-launcher .mwi-r-logo { width: 100%; height: 100%; }
 .mwi-r-player { cursor: pointer; }
 .mwi-r-player:hover { text-decoration: underline; }
+.mwi-r-right { display: flex; align-items: center; gap: 6px; }
+.mwi-r-profile {
+    visibility: hidden; padding: 1px 8px; font-size: 11px; font-weight: 700;
+    color: var(--r-accent); background: var(--r-panel-2);
+    border: 1px solid var(--r-border); border-radius: 4px;
+}
+.mwi-r-profile:hover { text-decoration: none; border-color: var(--r-accent); }
+.mwi-r-card:hover .mwi-r-profile { visibility: visible; }
 .mwi-r-badge {
     min-width: 22px; padding: 1px 7px; text-align: center;
     font-size: 12px; font-weight: 700; color: var(--r-bg);
