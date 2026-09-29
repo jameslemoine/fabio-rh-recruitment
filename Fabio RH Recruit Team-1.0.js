@@ -857,7 +857,7 @@
                 if (/^on/i.test(a.name) || a.name === 'id' || a.name === 'tabindex') n.removeAttribute(a.name);
             }
         });
-        return clone.innerHTML;
+        return clone.outerHTML; // le bloc lui-même porte la mise en page (grille) du jeu
     }
 
     const textLines = (el) => (el.innerText || '').split('\n').map(l => l.trim()).filter(Boolean);

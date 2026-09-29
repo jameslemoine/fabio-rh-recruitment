@@ -211,6 +211,7 @@
 .mwi-r-plines li { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,.04); break-inside: avoid; }
 .mwi-r-game { color: var(--r-text); font-size: 13px; }
 .mwi-r-game svg { max-width: 100%; }
+.mwi-r-game > * { max-width: 100%; height: auto !important; max-height: none !important; overflow: visible !important; }
 .mwi-r-ptab:focus { outline: none; }
 .mwi-r-pairs { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px; }
 .mwi-r-pair {
