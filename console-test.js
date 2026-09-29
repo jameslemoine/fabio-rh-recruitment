@@ -311,7 +311,7 @@
     // ---------------------------------------------------------------
     // 3. Interface & Styles
     // ---------------------------------------------------------------
-    const CSS = "#mwi-tracker-modal, #mwi-radar-launcher {\r\n    --r-bg: #0c0a0b;\r\n    --r-panel: #171113;\r\n    --r-panel-2: #24161a;\r\n    --r-border: #4a1f25;\r\n    --r-accent: #e0343c;\r\n    --r-accent-strong: #b3151d;\r\n    --r-gold: #e8b64c;\r\n    --r-text: #f4ece6;\r\n    --r-muted: #a08a8c;\r\n    --r-ok: #4ecb8d;\r\n    --r-warn: #f0a950;\r\n    --r-err: #ff5a5f;\r\n    font-family: \"Roboto\", \"Segoe UI\", sans-serif;\r\n    box-sizing: border-box;\r\n}\r\n#mwi-tracker-modal *, #mwi-radar-launcher * { box-sizing: border-box; }\r\n\r\n#mwi-tracker-modal {\r\n    position: fixed; top: 60px; right: 12px; z-index: 99999;\r\n    width: 340px; max-width: calc(100vw - 16px);\r\n    display: flex; flex-direction: column;\r\n    background: var(--r-bg); color: var(--r-text);\r\n    border: 1px solid var(--r-border); border-radius: 10px;\r\n    box-shadow: 0 8px 24px rgba(0,0,0,.55);\r\n    overflow: hidden; font-size: 13px;\r\n}\r\n#mwi-tracker-modal[data-mode=\"max\"] {\r\n    top: 5vh !important; left: 5vw !important; right: auto !important;\r\n    width: 90vw; height: 88vh;\r\n}\r\n#mwi-tracker-modal[data-mode=\"min\"] .mwi-r-body { display: none; }\r\n#mwi-tracker-modal[data-mode=\"min\"] { width: 260px; }\r\n\r\n.mwi-r-head {\r\n    display: flex; align-items: center; gap: 8px;\r\n    padding: 8px 10px; cursor: move; user-select: none;\r\n    background: linear-gradient(180deg, var(--r-panel-2), var(--r-panel));\r\n    border-bottom: 2px solid var(--r-accent);\r\n}\r\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-head { cursor: default; }\r\n.mwi-r-title { flex: 1; font-size: 14px; font-weight: 700; color: var(--r-accent); letter-spacing: .3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\r\n.mwi-r-logo { width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; display: block; }\r\n#mwi-radar-launcher { padding: 0; overflow: hidden; }\r\n#mwi-radar-launcher .mwi-r-logo { width: 100%; height: 100%; }\r\n.mwi-r-player { cursor: pointer; }\r\n.mwi-r-player:hover { text-decoration: underline; }\r\n.mwi-r-right { display: flex; align-items: center; gap: 6px; }\r\n.mwi-r-profile {\r\n    visibility: hidden; font-weight: 700;\r\n    padding: 3px 12px; font-size: 12px; letter-spacing: .3px; cursor: pointer;\r\n    color: #fff; background: var(--r-accent);\r\n    border: 1px solid var(--r-accent); border-radius: 4px;\r\n    box-shadow: 0 0 8px rgba(224, 52, 60, .45);\r\n    transition: background .15s, box-shadow .15s, transform .1s;\r\n}\r\n.mwi-r-profile:hover { text-decoration: none; background: var(--r-accent-strong); box-shadow: 0 0 12px rgba(224, 52, 60, .75); transform: translateY(-1px); }\r\n.mwi-r-badge {\r\n    min-width: 22px; padding: 1px 7px; text-align: center;\r\n    font-size: 12px; font-weight: 700; color: var(--r-bg);\r\n    background: var(--r-ok); border-radius: 10px;\r\n}\r\n.mwi-r-ctrl { display: flex; gap: 4px; }\r\n.mwi-r-icon {\r\n    width: 24px; height: 24px; padding: 0; line-height: 1;\r\n    display: flex; align-items: center; justify-content: center;\r\n    color: var(--r-text); background: transparent;\r\n    border: 1px solid var(--r-border); border-radius: 5px;\r\n    cursor: pointer; font-size: 14px; transition: background .15s, border-color .15s;\r\n}\r\n.mwi-r-icon:hover { background: var(--r-panel-2); border-color: var(--r-accent); }\r\n.mwi-r-icon.close:hover { background: var(--r-err); border-color: var(--r-err); }\r\n\r\n.mwi-r-body { display: flex; flex-direction: column; gap: 10px; padding: 10px; flex: 1; min-height: 0; }\r\n\r\n.mwi-r-toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }\r\n\r\n.mwi-r-chans-head { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--r-muted); }\r\n.mwi-r-chans { display: flex; flex-wrap: wrap; gap: 4px; }\r\n.mwi-r-chan {\r\n    display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;\r\n    font-size: 11px; cursor: pointer; user-select: none;\r\n    background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 10px;\r\n}\r\n.mwi-r-chan:has(input:checked) { border-color: var(--r-accent); color: var(--r-text); }\r\n.mwi-r-chan:not(:has(input:checked)) { color: var(--r-muted); opacity: .7; }\r\n.mwi-r-chan.iron:has(input:checked) { border-color: var(--r-warn); }\r\n.mwi-r-chan input { margin: 0; accent-color: var(--r-accent); }\r\n.mwi-r-chan-empty { font-size: 11px; font-style: italic; color: var(--r-muted); }\r\n.mwi-r-iron { font-size: 11px; font-weight: 700; color: var(--r-warn); margin-left: 4px; }\r\n.mwi-r-select {\r\n    flex: 0 1 150px; padding: 5px 8px; color: var(--r-text);\r\n    background: var(--r-panel); border: 1px solid var(--r-border);\r\n    border-radius: 5px; font-size: 12px; outline: none;\r\n}\r\n.mwi-r-select:focus { border-color: var(--r-accent); }\r\n\r\n.mwi-r-btn {\r\n    padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer;\r\n    color: var(--r-text); background: var(--r-panel-2);\r\n    border: 1px solid var(--r-border); border-radius: 5px;\r\n    transition: background .15s, border-color .15s, opacity .15s;\r\n}\r\n.mwi-r-btn:hover:not(:disabled) { border-color: var(--r-accent); background: #331a1f; }\r\n.mwi-r-btn.primary { color: #fff; background: var(--r-accent); border-color: var(--r-accent); }\r\n.mwi-r-btn.primary:hover:not(:disabled) { background: var(--r-accent-strong); }\r\n.mwi-r-btn:disabled { opacity: .55; cursor: not-allowed; }\r\n\r\n.mwi-r-list {\r\n    overflow-x: hidden; padding-right: 2px;\r\n    flex: 1; min-height: 120px; max-height: 320px; overflow-y: auto;\r\n    list-style: none; margin: 0; padding: 0;\r\n    display: grid; grid-template-columns: 1fr; gap: 6px; align-content: start;\r\n}\r\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-list {\r\n    max-height: none;\r\n    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));\r\n}\r\n.mwi-r-list::-webkit-scrollbar { width: 8px; }\r\n.mwi-r-list::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }\r\n\r\n.mwi-r-card {\r\n    padding: 8px 10px; background: var(--r-panel);\r\n    border: 1px solid var(--r-border); border-left: 3px solid var(--r-ok);\r\n    border-radius: 6px;\r\n}\r\n.mwi-r-card.guild { border-left-color: var(--r-gold); }\r\n.mwi-r-card.fail { border-left-color: var(--r-err); }\r\n.mwi-r-card.pending { border-left-color: var(--r-muted); }\r\n.mwi-r-name { font-weight: 700; font-size: 14px; color: var(--r-text); display: flex; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; }\r\n.mwi-r-who { display: flex; align-items: center; min-width: 0; overflow: hidden; }\r\n.mwi-r-who .mwi-r-player { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\r\n.mwi-r-iron { flex-shrink: 0; }\r\n.mwi-r-right { flex-shrink: 0; }\r\n.mwi-r-card { min-width: 0; transition: border-color .15s, background .15s; }\r\n.mwi-r-card:hover { background: var(--r-panel-2); border-color: var(--r-accent); }\r\n.mwi-r-tag { font-size: 11px; font-weight: 700; color: var(--r-muted); white-space: nowrap; }\r\n.mwi-r-card:not(.guild):not(.fail):not(.pending) .mwi-r-tag { color: var(--r-ok); }\r\n.mwi-r-card.fail .mwi-r-tag { color: var(--r-err); }\r\n.mwi-r-card.guild .mwi-r-tag { color: var(--r-gold); }\r\n.mwi-r-stats { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 5px; font-size: 12px; color: var(--r-muted); }\r\n.mwi-r-stats b { color: var(--r-text); font-weight: 600; }\r\n.mwi-r-sizes { display: flex; gap: 2px; padding: 2px; background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px; }\r\n.mwi-r-sizes .mwi-r-icon { border-color: transparent; color: var(--r-muted); }\r\n.mwi-r-sizes .mwi-r-icon.active { color: var(--r-accent); background: var(--r-panel-2); border-color: var(--r-accent); }\r\n.mwi-r-details { display: none; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 6px 0 0; font-size: 12px; }\r\n.mwi-r-details dt { color: var(--r-muted); }\r\n.mwi-r-details dd { margin: 0; color: var(--r-text); font-weight: 600; }\r\n\r\n/* Taille des cases : grandes = toutes les infos en liste, moyennes = bouton visible, petites = bouton au survol */\r\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-card { padding: 10px 12px; }\r\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-name { font-size: 15px; }\r\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-stats,\r\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-tag { display: none; }\r\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-details { display: grid; }\r\n#mwi-tracker-modal[data-size=\"large\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }\r\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-profile,\r\n#mwi-tracker-modal[data-size=\"medium\"] .mwi-r-profile { visibility: visible; }\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card { padding: 4px 8px; }\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-name { font-size: 13px; align-items: center; }\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-stats { display: none; }\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-list { gap: 3px; }\r\n#mwi-tracker-modal[data-size=\"small\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card:hover .mwi-r-profile { visibility: visible; }\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card { border-left-width: 1px; }\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-tag { font-size: 0; }\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-tag::before {\r\n    content: ''; display: block; width: 8px; height: 8px; border-radius: 50%; background: currentColor;\r\n}\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card.pending .mwi-r-tag { color: var(--r-muted); }\r\n#mwi-tracker-modal[data-size=\"medium\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }\r\n.mwi-r-empty { padding: 18px 8px; text-align: center; font-style: italic; color: var(--r-muted); background: var(--r-panel); border: 1px dashed var(--r-border); border-radius: 6px; }\r\n\r\n.mwi-r-progress { height: 4px; background: var(--r-panel); border-radius: 2px; overflow: hidden; display: none; }\r\n.mwi-r-progress > div { height: 100%; width: 0; background: var(--r-accent); transition: width .2s; }\r\n\r\n.mwi-r-actions { display: flex; gap: 8px; }\r\n.mwi-r-actions .mwi-r-btn { flex: 1; }\r\n\r\n.mwi-r-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 11px; color: var(--r-muted); }\r\n#mwi-status.ok { color: var(--r-ok); }\r\n#mwi-status.warn { color: var(--r-warn); }\r\n#mwi-status.err { color: var(--r-err); }\r\n\r\n#mwi-radar-launcher {\r\n    position: fixed; bottom: 16px; right: 16px; z-index: 99998; display: none;\r\n    width: 44px; height: 44px; align-items: center; justify-content: center;\r\n    font-size: 20px; cursor: pointer; color: var(--r-accent);\r\n    background: var(--r-panel); border: 1px solid var(--r-border);\r\n    border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,.5);\r\n}\r\n#mwi-radar-launcher:hover { border-color: var(--r-accent); background: var(--r-panel-2); }\r\n";
+    const CSS = "#mwi-tracker-modal, #mwi-radar-launcher {\r\n    --r-bg: #0c0a0b;\r\n    --r-panel: #171113;\r\n    --r-panel-2: #24161a;\r\n    --r-border: #4a1f25;\r\n    --r-accent: #e0343c;\r\n    --r-accent-strong: #b3151d;\r\n    --r-gold: #e8b64c;\r\n    --r-text: #f4ece6;\r\n    --r-muted: #a08a8c;\r\n    --r-ok: #4ecb8d;\r\n    --r-warn: #f0a950;\r\n    --r-err: #ff5a5f;\r\n    font-family: \"Roboto\", \"Segoe UI\", sans-serif;\r\n    box-sizing: border-box;\r\n}\r\n#mwi-tracker-modal *, #mwi-radar-launcher * { box-sizing: border-box; }\r\n\r\n#mwi-tracker-modal {\r\n    position: fixed; top: 60px; right: 12px; z-index: 99999;\r\n    width: 340px; max-width: calc(100vw - 16px);\r\n    display: flex; flex-direction: column;\r\n    background: var(--r-bg); color: var(--r-text);\r\n    border: 1px solid var(--r-border); border-radius: 10px;\r\n    box-shadow: 0 8px 24px rgba(0,0,0,.55);\r\n    overflow: hidden; font-size: 13px;\r\n}\r\n#mwi-tracker-modal[data-mode=\"max\"] {\r\n    top: 5vh !important; left: 5vw !important; right: auto !important;\r\n    width: 90vw !important; height: 88vh !important;\r\n}\r\n#mwi-tracker-modal[data-mode=\"min\"] { height: auto !important; }\r\n#mwi-tracker-modal[data-sized=\"1\"] .mwi-r-list { max-height: none; }\r\n#mwi-tracker-modal[data-mode=\"min\"] .mwi-r-body { display: none; }\r\n#mwi-tracker-modal[data-mode=\"min\"] { width: 260px; }\r\n\r\n.mwi-r-head {\r\n    display: flex; align-items: center; gap: 8px;\r\n    padding: 8px 10px; cursor: move; user-select: none;\r\n    background: linear-gradient(180deg, var(--r-panel-2), var(--r-panel));\r\n    border-bottom: 2px solid var(--r-accent);\r\n}\r\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-head { cursor: default; }\r\n.mwi-r-title { flex: 1; font-size: 14px; font-weight: 700; color: var(--r-accent); letter-spacing: .3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\r\n.mwi-r-logo { width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; display: block; }\r\n#mwi-radar-launcher { padding: 0; overflow: hidden; }\r\n#mwi-radar-launcher .mwi-r-logo { width: 100%; height: 100%; }\r\n.mwi-r-player { cursor: pointer; }\r\n.mwi-r-player:hover { text-decoration: underline; }\r\n.mwi-r-right { display: flex; align-items: center; gap: 6px; }\r\n.mwi-r-profile {\r\n    visibility: hidden; font-weight: 700;\r\n    padding: 3px 12px; font-size: 12px; letter-spacing: .3px; cursor: pointer;\r\n    color: #fff; background: var(--r-accent);\r\n    border: 1px solid var(--r-accent); border-radius: 4px;\r\n    box-shadow: 0 0 8px rgba(224, 52, 60, .45);\r\n    transition: background .15s, box-shadow .15s, transform .1s;\r\n}\r\n.mwi-r-profile:hover { text-decoration: none; background: var(--r-accent-strong); box-shadow: 0 0 12px rgba(224, 52, 60, .75); transform: translateY(-1px); }\r\n.mwi-r-badge {\r\n    min-width: 22px; padding: 1px 7px; text-align: center;\r\n    font-size: 12px; font-weight: 700; color: var(--r-bg);\r\n    background: var(--r-ok); border-radius: 10px;\r\n}\r\n.mwi-r-ctrl { display: flex; gap: 4px; }\r\n.mwi-r-icon {\r\n    width: 24px; height: 24px; padding: 0; line-height: 1;\r\n    display: flex; align-items: center; justify-content: center;\r\n    color: var(--r-text); background: transparent;\r\n    border: 1px solid var(--r-border); border-radius: 5px;\r\n    cursor: pointer; font-size: 14px; transition: background .15s, border-color .15s;\r\n}\r\n.mwi-r-icon:hover { background: var(--r-panel-2); border-color: var(--r-accent); }\r\n.mwi-r-icon.close:hover { background: var(--r-err); border-color: var(--r-err); }\r\n\r\n.mwi-r-body { display: flex; flex-direction: column; gap: 10px; padding: 10px; flex: 1; min-height: 0; }\r\n\r\n.mwi-r-toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }\r\n\r\n.mwi-r-chans-head { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--r-muted); }\r\n.mwi-r-chans { display: flex; flex-wrap: wrap; gap: 4px; }\r\n.mwi-r-chan {\r\n    display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;\r\n    font-size: 11px; cursor: pointer; user-select: none;\r\n    background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 10px;\r\n}\r\n.mwi-r-chan:has(input:checked) { border-color: var(--r-accent); color: var(--r-text); }\r\n.mwi-r-chan:not(:has(input:checked)) { color: var(--r-muted); opacity: .7; }\r\n.mwi-r-chan.iron:has(input:checked) { border-color: var(--r-warn); }\r\n.mwi-r-chan input { margin: 0; accent-color: var(--r-accent); }\r\n.mwi-r-chan-empty { font-size: 11px; font-style: italic; color: var(--r-muted); }\r\n.mwi-r-iron { font-size: 11px; font-weight: 700; color: var(--r-warn); margin-left: 4px; }\r\n.mwi-r-select {\r\n    flex: 0 1 150px; padding: 5px 8px; color: var(--r-text);\r\n    background: var(--r-panel); border: 1px solid var(--r-border);\r\n    border-radius: 5px; font-size: 12px; outline: none;\r\n}\r\n.mwi-r-select:focus { border-color: var(--r-accent); }\r\n\r\n.mwi-r-btn {\r\n    padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer;\r\n    color: var(--r-text); background: var(--r-panel-2);\r\n    border: 1px solid var(--r-border); border-radius: 5px;\r\n    transition: background .15s, border-color .15s, opacity .15s;\r\n}\r\n.mwi-r-btn:hover:not(:disabled) { border-color: var(--r-accent); background: #331a1f; }\r\n.mwi-r-btn.primary { color: #fff; background: var(--r-accent); border-color: var(--r-accent); }\r\n.mwi-r-btn.primary:hover:not(:disabled) { background: var(--r-accent-strong); }\r\n.mwi-r-btn:disabled { opacity: .55; cursor: not-allowed; }\r\n\r\n.mwi-r-list {\r\n    overflow-x: hidden; padding-right: 2px;\r\n    flex: 1; min-height: 120px; max-height: 320px; overflow-y: auto;\r\n    list-style: none; margin: 0; padding: 0;\r\n    display: grid; grid-template-columns: 1fr; gap: 6px; align-content: start;\r\n}\r\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-list {\r\n    max-height: none;\r\n    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));\r\n}\r\n.mwi-r-list::-webkit-scrollbar { width: 8px; }\r\n.mwi-r-list::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }\r\n\r\n.mwi-r-card {\r\n    padding: 8px 10px; background: var(--r-panel);\r\n    border: 1px solid var(--r-border); border-left: 3px solid var(--r-ok);\r\n    border-radius: 6px;\r\n}\r\n.mwi-r-card.guild { border-left-color: var(--r-gold); }\r\n.mwi-r-card.fail { border-left-color: var(--r-err); }\r\n.mwi-r-card.pending { border-left-color: var(--r-muted); }\r\n.mwi-r-name { font-weight: 700; font-size: 14px; color: var(--r-text); display: flex; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; }\r\n.mwi-r-who { display: flex; align-items: center; min-width: 0; overflow: hidden; }\r\n.mwi-r-who .mwi-r-player { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\r\n.mwi-r-iron { flex-shrink: 0; }\r\n.mwi-r-right { flex-shrink: 0; }\r\n.mwi-r-card { min-width: 0; transition: border-color .15s, background .15s; }\r\n.mwi-r-card:hover { background: var(--r-panel-2); border-color: var(--r-accent); }\r\n.mwi-r-tag { font-size: 11px; font-weight: 700; color: var(--r-muted); white-space: nowrap; }\r\n.mwi-r-card:not(.guild):not(.fail):not(.pending) .mwi-r-tag { color: var(--r-ok); }\r\n.mwi-r-card.fail .mwi-r-tag { color: var(--r-err); }\r\n.mwi-r-card.guild .mwi-r-tag { color: var(--r-gold); }\r\n.mwi-r-stats { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 5px; font-size: 12px; color: var(--r-muted); }\r\n.mwi-r-stats b { color: var(--r-text); font-weight: 600; }\r\n.mwi-r-sizes { display: flex; gap: 2px; padding: 2px; background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px; }\r\n.mwi-r-sizes .mwi-r-icon { border-color: transparent; color: var(--r-muted); }\r\n.mwi-r-sizes .mwi-r-icon.active { color: var(--r-accent); background: var(--r-panel-2); border-color: var(--r-accent); }\r\n.mwi-r-details { display: none; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 6px 0 0; font-size: 12px; }\r\n.mwi-r-details dt { color: var(--r-muted); }\r\n.mwi-r-details dd { margin: 0; color: var(--r-text); font-weight: 600; }\r\n\r\n/* Taille des cases : grandes = toutes les infos en liste, moyennes = bouton visible, petites = bouton au survol */\r\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-card { padding: 10px 12px; }\r\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-name { font-size: 15px; }\r\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-stats,\r\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-tag { display: none; }\r\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-details { display: grid; }\r\n#mwi-tracker-modal[data-size=\"large\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }\r\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-profile,\r\n#mwi-tracker-modal[data-size=\"medium\"] .mwi-r-profile { visibility: visible; }\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card { padding: 4px 8px; }\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-name { font-size: 13px; align-items: center; }\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-stats { display: none; }\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-list { gap: 3px; }\r\n#mwi-tracker-modal[data-size=\"small\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card:hover .mwi-r-profile { visibility: visible; }\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card { border-left-width: 1px; }\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-tag { font-size: 0; }\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-tag::before {\r\n    content: ''; display: block; width: 8px; height: 8px; border-radius: 50%; background: currentColor;\r\n}\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card.pending .mwi-r-tag { color: var(--r-muted); }\r\n#mwi-tracker-modal[data-size=\"medium\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }\r\n.mwi-r-card[data-player] { cursor: pointer; }\r\n\r\n/* Fiche joueur */\r\n.mwi-r-pview { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 8px; }\r\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-pview { display: flex; }\r\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-list,\r\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-toolbar,\r\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-chans-head,\r\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-chans { display: none; }\r\n.mwi-r-phead { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--r-border); }\r\n.mwi-r-pname { flex: 1; min-width: 0; font-size: 17px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\r\n.mwi-r-pview .mwi-r-profile { visibility: visible; }\r\n.mwi-r-ptabs { display: flex; flex-wrap: wrap; gap: 4px; }\r\n.mwi-r-ptab {\r\n    padding: 4px 10px; font-size: 12px; font-weight: 700; cursor: pointer;\r\n    color: var(--r-muted); background: var(--r-panel);\r\n    border: 1px solid var(--r-border); border-radius: 14px;\r\n    transition: color .15s, border-color .15s, background .15s;\r\n}\r\n.mwi-r-ptab:hover { color: var(--r-text); border-color: var(--r-accent); }\r\n.mwi-r-ptab.active { color: #fff; background: var(--r-accent); border-color: var(--r-accent); }\r\n.mwi-r-pbody {\r\n    flex: 1; min-height: 140px; max-height: 360px; overflow-y: auto; padding: 10px 12px;\r\n    background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px;\r\n}\r\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-pbody,\r\n#mwi-tracker-modal[data-sized=\"1\"] .mwi-r-pbody { max-height: none; }\r\n.mwi-r-pbody::-webkit-scrollbar { width: 8px; }\r\n.mwi-r-pbody::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }\r\n.mwi-r-pgrid { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: 13px; }\r\n.mwi-r-pgrid dt { color: var(--r-muted); }\r\n.mwi-r-pgrid dd { margin: 0; font-weight: 700; }\r\n.mwi-r-pstat.free { color: var(--r-ok); }\r\n.mwi-r-pstat.guild { color: var(--r-gold); }\r\n.mwi-r-pstat.fail { color: var(--r-err); }\r\n.mwi-r-pstat.pending { color: var(--r-muted); }\r\n.mwi-r-plines { list-style: none; margin: 0; padding: 0; columns: 220px; column-gap: 20px; font-size: 12px; }\r\n.mwi-r-plines li { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,.04); break-inside: avoid; }\r\n.mwi-r-pempty { margin: 10px 0 0; font-style: italic; color: var(--r-muted); font-size: 12px; }\r\n\r\n.mwi-r-empty { padding: 18px 8px; text-align: center; font-style: italic; color: var(--r-muted); background: var(--r-panel); border: 1px dashed var(--r-border); border-radius: 6px; }\r\n\r\n.mwi-r-progress { height: 4px; background: var(--r-panel); border-radius: 2px; overflow: hidden; display: none; }\r\n.mwi-r-progress > div { height: 100%; width: 0; background: var(--r-accent); transition: width .2s; }\r\n\r\n.mwi-r-actions { display: flex; gap: 8px; }\r\n.mwi-r-actions .mwi-r-btn { flex: 1; }\r\n\r\n.mwi-r-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 11px; color: var(--r-muted); }\r\n#mwi-status.ok { color: var(--r-ok); }\r\n#mwi-status.warn { color: var(--r-warn); }\r\n#mwi-status.err { color: var(--r-err); }\r\n\r\n#mwi-radar-launcher {\r\n    position: fixed; bottom: 16px; right: 16px; z-index: 99998; display: none;\r\n    width: 44px; height: 44px; align-items: center; justify-content: center;\r\n    font-size: 20px; cursor: pointer; color: var(--r-accent);\r\n    background: var(--r-panel); border: 1px solid var(--r-border);\r\n    border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,.5);\r\n}\r\n#mwi-radar-launcher:hover { border-color: var(--r-accent); background: var(--r-panel-2); }\r\n";
 
     function loadUI() {
         try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch (e) { return {}; }
@@ -371,6 +371,57 @@
         });
     }
 
+    // Redimensionnement en attrapant n'importe quel bord ou coin de la modale
+    function enableResize(modal) {
+        const EDGE = 6, MIN_W = 280, MIN_H = 220;
+        let st = null;
+        const edgeOf = (e) => {
+            const r = modal.getBoundingClientRect();
+            let d = '';
+            if (e.clientY >= r.bottom - EDGE) d += 's'; else if (e.clientY <= r.top + EDGE) d += 'n';
+            if (e.clientX >= r.right - EDGE) d += 'e'; else if (e.clientX <= r.left + EDGE) d += 'w';
+            return d;
+        };
+        modal.addEventListener('mousemove', (e) => {
+            if (st) return;
+            const d = modal.dataset.mode === 'normal' ? edgeOf(e) : '';
+            modal.style.cursor = d ? d + '-resize' : '';
+        });
+        modal.addEventListener('mouseleave', () => { if (!st) modal.style.cursor = ''; });
+        modal.addEventListener('mousedown', (e) => {
+            if (modal.dataset.mode !== 'normal') return;
+            const d = edgeOf(e);
+            if (!d) return;
+            const r = modal.getBoundingClientRect();
+            st = { d, x: e.clientX, y: e.clientY, r };
+            modal.style.left = r.left + 'px'; modal.style.top = r.top + 'px'; modal.style.right = 'auto';
+            e.preventDefault();
+            e.stopPropagation(); // pas de déplacement en même temps
+        }, true);
+        document.addEventListener('mousemove', (e) => {
+            if (!st) return;
+            const { d, x, y, r } = st;
+            let w = r.width, h = r.height;
+            if (d.includes('e')) w = r.width + e.clientX - x;
+            if (d.includes('w')) w = r.width - (e.clientX - x);
+            if (d.includes('s')) h = r.height + e.clientY - y;
+            if (d.includes('n')) h = r.height - (e.clientY - y);
+            w = Math.min(Math.max(MIN_W, w), window.innerWidth);
+            h = Math.min(Math.max(MIN_H, h), window.innerHeight);
+            modal.style.width = w + 'px';
+            modal.style.height = h + 'px';
+            if (d.includes('w')) modal.style.left = (r.right - w) + 'px';
+            if (d.includes('n')) modal.style.top = (r.bottom - h) + 'px';
+            modal.dataset.sized = '1';
+        });
+        document.addEventListener('mouseup', () => {
+            if (!st) return;
+            st = null;
+            modal.style.cursor = '';
+            saveUI({ left: modal.style.left, top: modal.style.top, width: modal.style.width, height: modal.style.height });
+        });
+    }
+
     function createTrackerModal() {
         document.getElementById('mwi-tracker-modal')?.remove();
         document.getElementById('mwi-radar-launcher')?.remove();
@@ -422,6 +473,7 @@
                 </div>
                 <div class="mwi-r-chans" id="mwi-channels"></div>
                 <ul class="mwi-r-list" id="mwi-tracker-list"></ul>
+                <div class="mwi-r-pview" id="mwi-profile-view"></div>
                 <div class="mwi-r-progress" id="mwi-progress"><div id="mwi-progress-bar"></div></div>
                 <div class="mwi-r-actions">
                     <button class="mwi-r-btn" id="mwi-btn-scan">1. Scanner Chat</button>
@@ -445,6 +497,11 @@
         if (saved.left && saved.top) {
             modal.style.left = saved.left; modal.style.top = saved.top; modal.style.right = 'auto';
         }
+        if (saved.width && saved.height) {
+            modal.style.width = saved.width; modal.style.height = saved.height;
+            modal.dataset.sized = '1';
+        }
+        modal.dataset.view = 'list';
         setMode(saved.mode === 'max' || saved.mode === 'min' ? saved.mode : 'normal');
         setVisible(saved.visible !== false);
 
@@ -452,10 +509,19 @@
         document.getElementById('mwi-btn-process').addEventListener('click', processUnverifiedProfiles);
         document.getElementById('mwi-btn-close').addEventListener('click', () => setVisible(false));
         launcher.addEventListener('click', () => setVisible(true));
+        // Bouton Profile : ouvre le profil dans le jeu ; clic sur la case : ouvre la fiche dans la modale
         document.getElementById('mwi-tracker-list').addEventListener('click', e => {
-            const el = e.target.closest('.mwi-r-player');
-            if (!el) return;
-            if (!window.mwiSendProfileCommand(el.dataset.player)) setStatus('Champ de chat introuvable.', 'err');
+            const btn = e.target.closest('.mwi-r-profile');
+            if (btn) { openGameProfile(btn.dataset.player); return; }
+            const card = e.target.closest('.mwi-r-card[data-player]');
+            if (card) openProfileView(card.dataset.player);
+        });
+        document.getElementById('mwi-profile-view').addEventListener('click', e => {
+            const t = e.target.closest('[data-action]');
+            if (!t) return;
+            if (t.dataset.action === 'back') closeProfileView();
+            else if (t.dataset.action === 'game') openGameProfile(t.dataset.player);
+            else if (t.dataset.action === 'section') { currentSection = +t.dataset.index; renderProfileView(); }
         });
         document.getElementById('mwi-btn-max').addEventListener('click', () => { setMode(modal.dataset.mode === 'max' ? 'normal' : 'max'); });
         document.getElementById('mwi-btn-min').addEventListener('click', () => { setMode(modal.dataset.mode === 'min' ? 'normal' : 'min'); });
@@ -498,7 +564,66 @@
         });
 
         enableDrag(modal, document.getElementById('mwi-r-head'));
+        enableResize(modal);
         updateModalUI();
+    }
+
+    let currentProfile = null;
+    let currentSection = 0;
+
+    function openGameProfile(username) {
+        if (!window.mwiSendProfileCommand(username)) setStatus('Champ de chat introuvable.', 'err');
+    }
+    function openProfileView(username) {
+        currentProfile = username;
+        currentSection = 0;
+        document.getElementById('mwi-tracker-modal').dataset.view = 'profile';
+        renderProfileView();
+    }
+    function closeProfileView() {
+        currentProfile = null;
+        document.getElementById('mwi-tracker-modal').dataset.view = 'list';
+        updateModalUI();
+    }
+
+    function renderProfileView() {
+        const view = document.getElementById('mwi-profile-view');
+        const p = currentProfile && recrues.get(currentProfile);
+        if (!view || !p) return;
+        const cat = playerCategory(p);
+        const statut = { free: 'Sans guilde', guild: 'En guilde', fail: 'Profil illisible', pending: 'En attente' }[cat];
+        const nameStyle = p.color ? `color: ${p.color};` : '';
+
+        const resume = `<dl class="mwi-r-pgrid">
+                <dt>Statut</dt><dd class="mwi-r-pstat ${cat}">${statut}</dd>
+                <dt>Mode</dt><dd>${p.ironcow ? '🐄 Ironcow' : 'Standard'}</dd>
+                ${cat === 'guild' ? `<dt>Guilde</dt><dd>${esc(p.guilde)}</dd><dt>Rang</dt><dd>${esc(p.rang)}</dd>` : ''}
+                <dt>🛡️ Total</dt><dd>${esc(p.stats.total)}</dd>
+                <dt>⚔️ Combat</dt><dd>${esc(p.stats.combat)}</dd>
+                <dt>⏳ Age</dt><dd>${esc(p.stats.age)}</dd>
+            </dl>`;
+        const sections = [{ titre: 'Résumé', html: resume }].concat(
+            ((p.profil && p.profil.sections) || []).map(s => ({
+                titre: s.titre,
+                html: s.lignes.length
+                    ? `<ul class="mwi-r-plines">${s.lignes.map(l => `<li>${esc(l)}</li>`).join('')}</ul>`
+                    : '<p class="mwi-r-pempty">Rien dans cet onglet.</p>'
+            })));
+        if (currentSection >= sections.length) currentSection = 0;
+        const hint = p.profil ? '' : `<p class="mwi-r-pempty">${p.verifie
+            ? 'Détails non récupérés pour ce joueur : relance la vérification.'
+            : 'Profil pas encore vérifié : clique sur « 2. Vérifier Profils » pour récupérer toutes les infos.'}</p>`;
+
+        view.innerHTML = `
+            <div class="mwi-r-phead">
+                <button class="mwi-r-btn" data-action="back" title="Retour à la liste">← Retour</button>
+                <span class="mwi-r-pname" style="${nameStyle}">${esc(p.nom)}${p.ironcow ? ' <span class="mwi-r-iron">🐄</span>' : ''}</span>
+                <button class="mwi-r-profile" data-action="game" data-player="${esc(p.nom)}" title="Ouvrir le profil dans le jeu">Profile</button>
+            </div>
+            <div class="mwi-r-ptabs">${sections.map((s, i) =>
+                `<button class="mwi-r-ptab${i === currentSection ? ' active' : ''}" data-action="section" data-index="${i}">${esc(s.titre)}</button>`).join('')}
+            </div>
+            <div class="mwi-r-pbody">${sections[currentSection].html}${currentSection === 0 ? hint : ''}</div>`;
     }
 
     function playerCategory(p) {
@@ -533,6 +658,7 @@
     function updateModalUI() {
         const list = document.getElementById('mwi-tracker-list');
         if (!list) return;
+        if (currentProfile) renderProfileView();
 
         const all = Array.from(recrues.values());
         const counts = { free: 0, guild: 0, fail: 0, pending: 0 };
@@ -578,8 +704,8 @@
                     ${cat === 'guild' ? `<dt>Guilde</dt><dd>${esc(p.guilde)}</dd><dt>Rang</dt><dd>${esc(p.rang)}</dd>` : ''}
                     ${(cat === 'free' || cat === 'guild') ? `<dt>🛡️ Total</dt><dd>${esc(p.stats.total)}</dd><dt>⚔️ Combat</dt><dd>${esc(p.stats.combat)}</dd><dt>⏳ Age</dt><dd>${esc(p.stats.age)}</dd>` : ''}
                 </dl>`;
-            return `<li class="mwi-r-card ${cat}">
-                <div class="mwi-r-name"><span class="mwi-r-who"><span class="mwi-r-player" data-player="${esc(p.nom)}" title="Voir le profil" style="${nameStyle}">${esc(p.nom)}</span>${p.ironcow ? '<span class="mwi-r-iron" title="Ironcow">🐄</span>' : ''}</span><span class="mwi-r-right"><button class="mwi-r-player mwi-r-profile" data-player="${esc(p.nom)}" title="Ouvrir le profil">Profile</button><span class="mwi-r-tag" title="${tag}">${tag}</span></span></div>
+            return `<li class="mwi-r-card ${cat}" data-player="${esc(p.nom)}" title="Voir la fiche du joueur">
+                <div class="mwi-r-name"><span class="mwi-r-who"><span class="mwi-r-player" style="${nameStyle}">${esc(p.nom)}</span>${p.ironcow ? '<span class="mwi-r-iron" title="Ironcow">🐄</span>' : ''}</span><span class="mwi-r-right"><button class="mwi-r-profile" data-player="${esc(p.nom)}" title="Ouvrir le profil">Profile</button><span class="mwi-r-tag" title="${tag}">${tag}</span></span></div>
                 ${stats}
                 ${details}
             </li>`;
@@ -669,6 +795,50 @@
         };
     }
 
+    // Onglets du profil du jeu (MuiTabs), cherchés en remontant depuis le bloc du profil
+    function findProfileTabs(profileEl) {
+        let el = profileEl;
+        for (let i = 0; i < 8 && el && el !== document.body; i++, el = el.parentElement) {
+            if ((el.textContent || '').length > 20000) break; // on est sorti du profil
+            const tl = Array.from(el.querySelectorAll('[role="tablist"]')).find(t =>
+                !t.closest('#mwi-tracker-modal') && !t.closest('[class*="Chat_"]')
+                && !t.querySelector('[data-mention-channel]'));
+            if (tl) return { root: el, tabs: Array.from(tl.querySelectorAll('[role="tab"]')) };
+        }
+        return null;
+    }
+
+    const textLines = (el) => (el.innerText || '').split('\n').map(l => l.trim()).filter(Boolean);
+
+    // Clique chaque onglet, attend que le contenu change puis garde uniquement les lignes propres à l'onglet
+    async function readProfileTabs(profileEl) {
+        const found = findProfileTabs(profileEl);
+        if (!found || found.tabs.length === 0) return { root: profileEl, sections: [{ titre: 'Profil', lignes: textLines(profileEl) }] };
+
+        const { root, tabs } = found;
+        const labels = tabs.map(t => (t.innerText || t.textContent || '').trim() || 'Onglet');
+        const raw = [];
+        let previous = root.innerText;
+        for (let i = 0; i < tabs.length; i++) {
+            if (tabs[i].getAttribute('aria-selected') !== 'true') {
+                tabs[i].click();
+                for (let k = 0; k < 15; k++) {
+                    await sleep(POLL_MS);
+                    if (root.innerText !== previous) break;
+                }
+                await sleep(POLL_MS); // laisse le contenu finir de s'afficher
+            }
+            previous = root.innerText;
+            raw.push(textLines(root));
+        }
+        if (tabs[0].getAttribute('aria-selected') !== 'true') tabs[0].click();
+
+        // Les lignes présentes dans tous les onglets (en-tête, noms des onglets) ne sont pas du contenu
+        const common = raw.length > 1 ? new Set(raw[0].filter(l => raw.every(r => r.includes(l)))) : new Set();
+        labels.forEach(l => common.add(l));
+        return { root, sections: raw.map((lignes, i) => ({ titre: labels[i], lignes: lignes.filter(l => !common.has(l)) })) };
+    }
+
     async function analyzeProfile(username) {
         const playerData = recrues.get(username);
         if (!playerData) return true;
@@ -709,6 +879,16 @@
         // Le badge [IC] du profil fait foi ; sinon on garde ce que le chat avait indiqué
         if (nameEl) playerData.ironcow = icFromDom;
         else if (result.ironcow) playerData.ironcow = true;
+
+        // Lecture de chaque onglet du profil (sections affichées ensuite dans la fiche du joueur)
+        try {
+            const lecture = await readProfileTabs(found.el);
+            if (lecture.sections.length) playerData.profil = { sections: lecture.sections, lu: Date.now() };
+            // Le jeu a pu redessiner le bloc en changeant d'onglet : on ferme via le conteneur des onglets
+            if (!found.el.isConnected) found.el = lecture.root;
+        } catch (e) {
+            log('Lecture des onglets du profil impossible :', e);
+        }
 
         const closeBtn = found.el.querySelector('button[aria-label="Close"], [class*="close" i], svg[class*="close" i]');
         if (closeBtn) {

@@ -386,6 +386,57 @@
         });
     }
 
+    // Redimensionnement en attrapant n'importe quel bord ou coin de la modale
+    function enableResize(modal) {
+        const EDGE = 6, MIN_W = 280, MIN_H = 220;
+        let st = null;
+        const edgeOf = (e) => {
+            const r = modal.getBoundingClientRect();
+            let d = '';
+            if (e.clientY >= r.bottom - EDGE) d += 's'; else if (e.clientY <= r.top + EDGE) d += 'n';
+            if (e.clientX >= r.right - EDGE) d += 'e'; else if (e.clientX <= r.left + EDGE) d += 'w';
+            return d;
+        };
+        modal.addEventListener('mousemove', (e) => {
+            if (st) return;
+            const d = modal.dataset.mode === 'normal' ? edgeOf(e) : '';
+            modal.style.cursor = d ? d + '-resize' : '';
+        });
+        modal.addEventListener('mouseleave', () => { if (!st) modal.style.cursor = ''; });
+        modal.addEventListener('mousedown', (e) => {
+            if (modal.dataset.mode !== 'normal') return;
+            const d = edgeOf(e);
+            if (!d) return;
+            const r = modal.getBoundingClientRect();
+            st = { d, x: e.clientX, y: e.clientY, r };
+            modal.style.left = r.left + 'px'; modal.style.top = r.top + 'px'; modal.style.right = 'auto';
+            e.preventDefault();
+            e.stopPropagation(); // pas de déplacement en même temps
+        }, true);
+        document.addEventListener('mousemove', (e) => {
+            if (!st) return;
+            const { d, x, y, r } = st;
+            let w = r.width, h = r.height;
+            if (d.includes('e')) w = r.width + e.clientX - x;
+            if (d.includes('w')) w = r.width - (e.clientX - x);
+            if (d.includes('s')) h = r.height + e.clientY - y;
+            if (d.includes('n')) h = r.height - (e.clientY - y);
+            w = Math.min(Math.max(MIN_W, w), window.innerWidth);
+            h = Math.min(Math.max(MIN_H, h), window.innerHeight);
+            modal.style.width = w + 'px';
+            modal.style.height = h + 'px';
+            if (d.includes('w')) modal.style.left = (r.right - w) + 'px';
+            if (d.includes('n')) modal.style.top = (r.bottom - h) + 'px';
+            modal.dataset.sized = '1';
+        });
+        document.addEventListener('mouseup', () => {
+            if (!st) return;
+            st = null;
+            modal.style.cursor = '';
+            saveUI({ left: modal.style.left, top: modal.style.top, width: modal.style.width, height: modal.style.height });
+        });
+    }
+
     function createTrackerModal() {
         document.getElementById('mwi-tracker-modal')?.remove();
         document.getElementById('mwi-radar-launcher')?.remove();
@@ -437,6 +488,7 @@
                 </div>
                 <div class="mwi-r-chans" id="mwi-channels"></div>
                 <ul class="mwi-r-list" id="mwi-tracker-list"></ul>
+                <div class="mwi-r-pview" id="mwi-profile-view"></div>
                 <div class="mwi-r-progress" id="mwi-progress"><div id="mwi-progress-bar"></div></div>
                 <div class="mwi-r-actions">
                     <button class="mwi-r-btn" id="mwi-btn-scan">1. Scanner Chat</button>
@@ -460,6 +512,11 @@
         if (saved.left && saved.top) {
             modal.style.left = saved.left; modal.style.top = saved.top; modal.style.right = 'auto';
         }
+        if (saved.width && saved.height) {
+            modal.style.width = saved.width; modal.style.height = saved.height;
+            modal.dataset.sized = '1';
+        }
+        modal.dataset.view = 'list';
         setMode(saved.mode === 'max' || saved.mode === 'min' ? saved.mode : 'normal');
         setVisible(saved.visible !== false);
 
@@ -467,10 +524,19 @@
         document.getElementById('mwi-btn-process').addEventListener('click', processUnverifiedProfiles);
         document.getElementById('mwi-btn-close').addEventListener('click', () => setVisible(false));
         launcher.addEventListener('click', () => setVisible(true));
+        // Bouton Profile : ouvre le profil dans le jeu ; clic sur la case : ouvre la fiche dans la modale
         document.getElementById('mwi-tracker-list').addEventListener('click', e => {
-            const el = e.target.closest('.mwi-r-player');
-            if (!el) return;
-            if (!window.mwiSendProfileCommand(el.dataset.player)) setStatus('Champ de chat introuvable.', 'err');
+            const btn = e.target.closest('.mwi-r-profile');
+            if (btn) { openGameProfile(btn.dataset.player); return; }
+            const card = e.target.closest('.mwi-r-card[data-player]');
+            if (card) openProfileView(card.dataset.player);
+        });
+        document.getElementById('mwi-profile-view').addEventListener('click', e => {
+            const t = e.target.closest('[data-action]');
+            if (!t) return;
+            if (t.dataset.action === 'back') closeProfileView();
+            else if (t.dataset.action === 'game') openGameProfile(t.dataset.player);
+            else if (t.dataset.action === 'section') { currentSection = +t.dataset.index; renderProfileView(); }
         });
         document.getElementById('mwi-btn-max').addEventListener('click', () => { setMode(modal.dataset.mode === 'max' ? 'normal' : 'max'); });
         document.getElementById('mwi-btn-min').addEventListener('click', () => { setMode(modal.dataset.mode === 'min' ? 'normal' : 'min'); });
@@ -513,7 +579,66 @@
         });
 
         enableDrag(modal, document.getElementById('mwi-r-head'));
+        enableResize(modal);
         updateModalUI();
+    }
+
+    let currentProfile = null;
+    let currentSection = 0;
+
+    function openGameProfile(username) {
+        if (!window.mwiSendProfileCommand(username)) setStatus('Champ de chat introuvable.', 'err');
+    }
+    function openProfileView(username) {
+        currentProfile = username;
+        currentSection = 0;
+        document.getElementById('mwi-tracker-modal').dataset.view = 'profile';
+        renderProfileView();
+    }
+    function closeProfileView() {
+        currentProfile = null;
+        document.getElementById('mwi-tracker-modal').dataset.view = 'list';
+        updateModalUI();
+    }
+
+    function renderProfileView() {
+        const view = document.getElementById('mwi-profile-view');
+        const p = currentProfile && recrues.get(currentProfile);
+        if (!view || !p) return;
+        const cat = playerCategory(p);
+        const statut = { free: 'Sans guilde', guild: 'En guilde', fail: 'Profil illisible', pending: 'En attente' }[cat];
+        const nameStyle = p.color ? `color: ${p.color};` : '';
+
+        const resume = `<dl class="mwi-r-pgrid">
+                <dt>Statut</dt><dd class="mwi-r-pstat ${cat}">${statut}</dd>
+                <dt>Mode</dt><dd>${p.ironcow ? '🐄 Ironcow' : 'Standard'}</dd>
+                ${cat === 'guild' ? `<dt>Guilde</dt><dd>${esc(p.guilde)}</dd><dt>Rang</dt><dd>${esc(p.rang)}</dd>` : ''}
+                <dt>🛡️ Total</dt><dd>${esc(p.stats.total)}</dd>
+                <dt>⚔️ Combat</dt><dd>${esc(p.stats.combat)}</dd>
+                <dt>⏳ Age</dt><dd>${esc(p.stats.age)}</dd>
+            </dl>`;
+        const sections = [{ titre: 'Résumé', html: resume }].concat(
+            ((p.profil && p.profil.sections) || []).map(s => ({
+                titre: s.titre,
+                html: s.lignes.length
+                    ? `<ul class="mwi-r-plines">${s.lignes.map(l => `<li>${esc(l)}</li>`).join('')}</ul>`
+                    : '<p class="mwi-r-pempty">Rien dans cet onglet.</p>'
+            })));
+        if (currentSection >= sections.length) currentSection = 0;
+        const hint = p.profil ? '' : `<p class="mwi-r-pempty">${p.verifie
+            ? 'Détails non récupérés pour ce joueur : relance la vérification.'
+            : 'Profil pas encore vérifié : clique sur « 2. Vérifier Profils » pour récupérer toutes les infos.'}</p>`;
+
+        view.innerHTML = `
+            <div class="mwi-r-phead">
+                <button class="mwi-r-btn" data-action="back" title="Retour à la liste">← Retour</button>
+                <span class="mwi-r-pname" style="${nameStyle}">${esc(p.nom)}${p.ironcow ? ' <span class="mwi-r-iron">🐄</span>' : ''}</span>
+                <button class="mwi-r-profile" data-action="game" data-player="${esc(p.nom)}" title="Ouvrir le profil dans le jeu">Profile</button>
+            </div>
+            <div class="mwi-r-ptabs">${sections.map((s, i) =>
+                `<button class="mwi-r-ptab${i === currentSection ? ' active' : ''}" data-action="section" data-index="${i}">${esc(s.titre)}</button>`).join('')}
+            </div>
+            <div class="mwi-r-pbody">${sections[currentSection].html}${currentSection === 0 ? hint : ''}</div>`;
     }
 
     function playerCategory(p) {
@@ -548,6 +673,7 @@
     function updateModalUI() {
         const list = document.getElementById('mwi-tracker-list');
         if (!list) return;
+        if (currentProfile) renderProfileView();
 
         const all = Array.from(recrues.values());
         const counts = { free: 0, guild: 0, fail: 0, pending: 0 };
@@ -593,8 +719,8 @@
                     ${cat === 'guild' ? `<dt>Guilde</dt><dd>${esc(p.guilde)}</dd><dt>Rang</dt><dd>${esc(p.rang)}</dd>` : ''}
                     ${(cat === 'free' || cat === 'guild') ? `<dt>🛡️ Total</dt><dd>${esc(p.stats.total)}</dd><dt>⚔️ Combat</dt><dd>${esc(p.stats.combat)}</dd><dt>⏳ Age</dt><dd>${esc(p.stats.age)}</dd>` : ''}
                 </dl>`;
-            return `<li class="mwi-r-card ${cat}">
-                <div class="mwi-r-name"><span class="mwi-r-who"><span class="mwi-r-player" data-player="${esc(p.nom)}" title="Voir le profil" style="${nameStyle}">${esc(p.nom)}</span>${p.ironcow ? '<span class="mwi-r-iron" title="Ironcow">🐄</span>' : ''}</span><span class="mwi-r-right"><button class="mwi-r-player mwi-r-profile" data-player="${esc(p.nom)}" title="Ouvrir le profil">Profile</button><span class="mwi-r-tag" title="${tag}">${tag}</span></span></div>
+            return `<li class="mwi-r-card ${cat}" data-player="${esc(p.nom)}" title="Voir la fiche du joueur">
+                <div class="mwi-r-name"><span class="mwi-r-who"><span class="mwi-r-player" style="${nameStyle}">${esc(p.nom)}</span>${p.ironcow ? '<span class="mwi-r-iron" title="Ironcow">🐄</span>' : ''}</span><span class="mwi-r-right"><button class="mwi-r-profile" data-player="${esc(p.nom)}" title="Ouvrir le profil">Profile</button><span class="mwi-r-tag" title="${tag}">${tag}</span></span></div>
                 ${stats}
                 ${details}
             </li>`;
@@ -684,6 +810,50 @@
         };
     }
 
+    // Onglets du profil du jeu (MuiTabs), cherchés en remontant depuis le bloc du profil
+    function findProfileTabs(profileEl) {
+        let el = profileEl;
+        for (let i = 0; i < 8 && el && el !== document.body; i++, el = el.parentElement) {
+            if ((el.textContent || '').length > 20000) break; // on est sorti du profil
+            const tl = Array.from(el.querySelectorAll('[role="tablist"]')).find(t =>
+                !t.closest('#mwi-tracker-modal') && !t.closest('[class*="Chat_"]')
+                && !t.querySelector('[data-mention-channel]'));
+            if (tl) return { root: el, tabs: Array.from(tl.querySelectorAll('[role="tab"]')) };
+        }
+        return null;
+    }
+
+    const textLines = (el) => (el.innerText || '').split('\n').map(l => l.trim()).filter(Boolean);
+
+    // Clique chaque onglet, attend que le contenu change puis garde uniquement les lignes propres à l'onglet
+    async function readProfileTabs(profileEl) {
+        const found = findProfileTabs(profileEl);
+        if (!found || found.tabs.length === 0) return { root: profileEl, sections: [{ titre: 'Profil', lignes: textLines(profileEl) }] };
+
+        const { root, tabs } = found;
+        const labels = tabs.map(t => (t.innerText || t.textContent || '').trim() || 'Onglet');
+        const raw = [];
+        let previous = root.innerText;
+        for (let i = 0; i < tabs.length; i++) {
+            if (tabs[i].getAttribute('aria-selected') !== 'true') {
+                tabs[i].click();
+                for (let k = 0; k < 15; k++) {
+                    await sleep(POLL_MS);
+                    if (root.innerText !== previous) break;
+                }
+                await sleep(POLL_MS); // laisse le contenu finir de s'afficher
+            }
+            previous = root.innerText;
+            raw.push(textLines(root));
+        }
+        if (tabs[0].getAttribute('aria-selected') !== 'true') tabs[0].click();
+
+        // Les lignes présentes dans tous les onglets (en-tête, noms des onglets) ne sont pas du contenu
+        const common = raw.length > 1 ? new Set(raw[0].filter(l => raw.every(r => r.includes(l)))) : new Set();
+        labels.forEach(l => common.add(l));
+        return { root, sections: raw.map((lignes, i) => ({ titre: labels[i], lignes: lignes.filter(l => !common.has(l)) })) };
+    }
+
     async function analyzeProfile(username) {
         const playerData = recrues.get(username);
         if (!playerData) return true;
@@ -724,6 +894,16 @@
         // Le badge [IC] du profil fait foi ; sinon on garde ce que le chat avait indiqué
         if (nameEl) playerData.ironcow = icFromDom;
         else if (result.ironcow) playerData.ironcow = true;
+
+        // Lecture de chaque onglet du profil (sections affichées ensuite dans la fiche du joueur)
+        try {
+            const lecture = await readProfileTabs(found.el);
+            if (lecture.sections.length) playerData.profil = { sections: lecture.sections, lu: Date.now() };
+            // Le jeu a pu redessiner le bloc en changeant d'onglet : on ferme via le conteneur des onglets
+            if (!found.el.isConnected) found.el = lecture.root;
+        } catch (e) {
+            log('Lecture des onglets du profil impossible :', e);
+        }
 
         const closeBtn = found.el.querySelector('button[aria-label="Close"], [class*="close" i], svg[class*="close" i]');
         if (closeBtn) {
