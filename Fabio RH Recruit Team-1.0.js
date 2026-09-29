@@ -854,6 +854,6 @@
         setTimeout(createTrackerModal, 1000);
     }
 
-    console.log("%c[Radar] Script chargé.", "color: #98a7e9; font-weight: bold; font-size: 14px;");
+    console.log("%c[Radar] Script chargé.", "color: #e0343c; font-weight: bold; font-size: 14px;");
 
 })();
