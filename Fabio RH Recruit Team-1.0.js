@@ -658,12 +658,19 @@
 
     function tilesToHtml(tuiles) {
         if (!tuiles.length) return '';
-        return `<div class="mwi-r-tiles">${tuiles.map(t => `
-            <div class="mwi-r-tile" title="${esc(t.nom)}">
+        const placed = tuiles.every(t => t.col !== undefined);
+        const cols = placed ? Math.max(...tuiles.map(t => t.col)) + 1 : 0;
+        const style = placed ? ` style="grid-template-columns: repeat(${cols}, var(--tile))"` : '';
+        const valueClass = (t) => /^\+\d/.test(t) ? ' plus' : /^[\d\s., ]+[kKmM]?$/.test(t) ? ' num' : '';
+        return `<div class="mwi-r-tiles${placed ? ' placed' : ''}"${style}>${tuiles.map(t => {
+            const textes = t.textes || (t.texte ? [{ t: t.texte, coin: 'tl' }] : []);
+            const pos = placed ? ` style="grid-column: ${t.col + 1}; grid-row: ${t.row + 1}"` : '';
+            return `<div class="mwi-r-tile"${pos} title="${esc(t.nom || textes.map(x => x.t).join(' '))}">
                 <div class="mwi-r-tico">${t.icone}</div>
-                ${t.texte ? `<b>${esc(t.texte)}</b>` : ''}
-                ${t.nom && t.nom !== t.texte ? `<span>${esc(t.nom)}</span>` : ''}
-            </div>`).join('')}</div>`;
+                ${textes.map(x => `<span class="mwi-r-tt ${x.coin}${valueClass(x.t)}">${esc(x.t)}</span>`).join('')}
+                ${(t.badges || []).map(bd => `<span class="mwi-r-tb ${bd.coin}">${bd.icone}</span>`).join('')}
+            </div>`;
+        }).join('')}</div>`;
     }
 
     function playerCategory(p) {
@@ -875,27 +882,75 @@
         return clone.outerHTML;
     }
 
-    // Données d'un onglet : les cases (une icône + un petit texte) et les lignes de texte restantes
+    // Coin d'un élément dans sa case : t/b (haut/bas) + l/c/r (gauche/centre/droite)
+    function cornerOf(r, box) {
+        const cx = (r.left + r.right) / 2 - box.left, cy = (r.top + r.bottom) / 2 - box.top;
+        return (cy < box.height / 2 ? 't' : 'b') + (cx < box.width / 3 ? 'l' : cx > box.width * 2 / 3 ? 'r' : 'c');
+    }
+
+    // Données d'un onglet : les cases (icône principale, textes et petits badges avec leur coin,
+    // position dans la grille du jeu) et les lignes de texte restantes
     function extractPanel(panel) {
-        const icons = Array.from(panel.querySelectorAll('svg, img')).filter(i => !i.parentElement.closest('svg'));
-        const tuiles = [], dansTuiles = new Set(), vus = new Set();
-        const nbIcons = (el) => Array.from(el.querySelectorAll('svg, img')).filter(i => !i.parentElement.closest('svg')).length;
-        for (const icon of icons) {
+        const pr = panel.getBoundingClientRect();
+        const icons = Array.from(panel.querySelectorAll('svg, img'))
+            .filter(i => !i.parentElement.closest('svg'))
+            .map(el => ({ el, r: el.getBoundingClientRect() }))
+            .filter(o => o.r.width >= 12 && o.r.width <= 90)
+            .sort((x, y) => y.r.width * y.r.height - x.r.width * x.r.height);
+        const pris = new Set(), dansTuiles = new Set(), tuiles = [];
+
+        for (const o of icons) {
+            if (pris.has(o.el)) continue;
+            // La case est le plus grand ancêtre qui reste à peine plus grand que l'icône
             let tile = null;
-            for (let el = icon.parentElement, k = 0; k < 4 && el && el !== panel; k++, el = el.parentElement) {
-                if (nbIcons(el) > 1) break;          // plusieurs icônes : ce n'est plus une case
+            for (let el = o.el.parentElement, k = 0; k < 6 && el && el !== panel; k++, el = el.parentElement) {
+                const r = el.getBoundingClientRect();
+                if (r.width > o.r.width * 2.2 || r.height > o.r.height * 2.2) break;
                 tile = el;
-                if ((el.innerText || '').trim()) break;
             }
-            if (!tile || vus.has(tile)) continue;
-            vus.add(tile);
-            const lignes = textLines(tile);
-            if (lignes.join(' ').length > 60) continue; // bloc de texte, pas une case
-            lignes.forEach(l => dansTuiles.add(l));
-            tuiles.push({ icone: iconMarkup(icon), nom: iconName(icon), texte: lignes.join(' ') });
+            if (!tile) continue; // icône dans une ligne de texte
+            const inner = icons.filter(x => tile.contains(x.el));
+            if (inner.some(x => pris.has(x.el))) continue;
+            inner.forEach(x => pris.add(x.el));
+
+            const box = tile.getBoundingClientRect();
+            const badges = inner.filter(x => x !== o && x.r.width < o.r.width * 0.7)
+                .map(x => ({ icone: iconMarkup(x.el), coin: cornerOf(x.r, box) }));
+            const textes = [];
+            const walker = document.createTreeWalker(tile, NodeFilter.SHOW_TEXT);
+            for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+                const t = n.textContent.trim();
+                if (!t || n.parentElement.closest('svg')) continue;
+                const range = document.createRange();
+                range.selectNodeContents(n);
+                textes.push({ t, coin: cornerOf(range.getBoundingClientRect(), box) });
+                dansTuiles.add(t);
+            }
+            textLines(tile).forEach(l => dansTuiles.add(l));
+            tuiles.push({
+                icone: iconMarkup(o.el), nom: iconName(o.el), textes, badges,
+                x: box.left - pr.left, y: box.top - pr.top, w: box.width, h: box.height
+            });
         }
+        placeInGrid(tuiles);
         const lignes = textLines(panel).filter(l => !dansTuiles.has(l));
         return { tuiles, lignes };
+    }
+
+    // Colonne / ligne de chaque case d'après sa position à l'écran (garde les trous, ex. l'équipement)
+    function placeInGrid(tuiles) {
+        if (!tuiles.length) return;
+        const axis = (key, size) => {
+            const vals = tuiles.map(t => t[key]).sort((a, b) => a - b);
+            const med = tuiles.map(t => t[size]).sort((a, b) => a - b)[Math.floor(tuiles.length / 2)] || 1;
+            const centres = [];
+            for (const v of vals) if (!centres.length || v - centres[centres.length - 1] > med / 2) centres.push(v);
+            const pas = centres.slice(1).reduce((m, c, i) => Math.min(m, c - centres[i]), Infinity);
+            const step = isFinite(pas) ? pas : med;
+            tuiles.forEach(t => { t[key === 'x' ? 'col' : 'row'] = Math.min(40, Math.round((t[key] - vals[0]) / step)); });
+        };
+        axis('x', 'w');
+        axis('y', 'h');
     }
 
     const textLines = (el) => (el.innerText || '').split('\n').map(l => l.trim()).filter(Boolean);
