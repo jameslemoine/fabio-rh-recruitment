@@ -51,7 +51,6 @@
     border: 1px solid var(--r-border); border-radius: 4px;
 }
 .mwi-r-profile:hover { text-decoration: none; border-color: var(--r-accent); }
-.mwi-r-card:hover .mwi-r-profile { visibility: visible; }
 .mwi-r-badge {
     min-width: 22px; padding: 1px 7px; text-align: center;
     font-size: 12px; font-weight: 700; color: var(--r-bg);
@@ -130,6 +129,25 @@
 .mwi-r-card.guild .mwi-r-tag { color: var(--r-accent); }
 .mwi-r-stats { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 5px; font-size: 12px; color: var(--r-muted); }
 .mwi-r-stats b { color: var(--r-text); font-weight: 600; }
+.mwi-r-details { display: none; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 6px 0 0; font-size: 12px; }
+.mwi-r-details dt { color: var(--r-muted); }
+.mwi-r-details dd { margin: 0; color: var(--r-text); font-weight: 600; }
+
+/* Taille des cases : grandes = toutes les infos en liste, moyennes = bouton visible, petites = bouton au survol */
+#mwi-tracker-modal[data-size="large"] .mwi-r-card { padding: 10px 12px; }
+#mwi-tracker-modal[data-size="large"] .mwi-r-name { font-size: 15px; }
+#mwi-tracker-modal[data-size="large"] .mwi-r-stats,
+#mwi-tracker-modal[data-size="large"] .mwi-r-tag { display: none; }
+#mwi-tracker-modal[data-size="large"] .mwi-r-details { display: grid; }
+#mwi-tracker-modal[data-size="large"][data-mode="max"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+#mwi-tracker-modal[data-size="large"] .mwi-r-profile,
+#mwi-tracker-modal[data-size="medium"] .mwi-r-profile { visibility: visible; }
+#mwi-tracker-modal[data-size="small"] .mwi-r-card { padding: 4px 8px; }
+#mwi-tracker-modal[data-size="small"] .mwi-r-name { font-size: 13px; align-items: center; }
+#mwi-tracker-modal[data-size="small"] .mwi-r-stats { display: none; }
+#mwi-tracker-modal[data-size="small"] .mwi-r-list { gap: 3px; }
+#mwi-tracker-modal[data-size="small"][data-mode="max"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+#mwi-tracker-modal[data-size="small"] .mwi-r-card:hover .mwi-r-profile { visibility: visible; }
 .mwi-r-empty { padding: 18px 8px; text-align: center; font-style: italic; color: var(--r-muted); background: var(--r-panel); border: 1px dashed var(--r-border); border-radius: 6px; }
 
 .mwi-r-progress { height: 4px; background: var(--r-panel); border-radius: 2px; overflow: hidden; display: none; }

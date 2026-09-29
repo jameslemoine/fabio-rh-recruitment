@@ -423,6 +423,11 @@
                         <option value="standard">Standard</option>
                         <option value="ironcow">🐄 Ironcow (IC)</option>
                     </select>
+                    <select class="mwi-r-select" id="mwi-size" title="Taille des cases">
+                        <option value="large">Grandes</option>
+                        <option value="medium">Moyennes</option>
+                        <option value="small">Petites</option>
+                    </select>
                     <button class="mwi-r-btn" id="mwi-btn-copy" title="Copier les pseudos affichés">Copier</button>
                     <button class="mwi-r-btn" id="mwi-btn-clear" title="Vider la liste">Vider</button>
                 </div>
@@ -484,6 +489,13 @@
             currentMode = e.target.value;
             saveUI({ modeFilter: currentMode });
             updateModalUI();
+        });
+        const sizeSelect = document.getElementById('mwi-size');
+        modal.dataset.size = ['large', 'small'].includes(saved.cardSize) ? saved.cardSize : 'medium';
+        sizeSelect.value = modal.dataset.size;
+        sizeSelect.addEventListener('change', (e) => {
+            modal.dataset.size = e.target.value;
+            saveUI({ cardSize: e.target.value });
         });
         document.getElementById('mwi-btn-chans').addEventListener('click', renderChannels);
         launcher.addEventListener('click', renderChannels);
@@ -570,9 +582,18 @@
                     <span>⚔️ Combat <b>${esc(p.stats.combat)}</b></span>
                     <span>⏳ Age <b>${esc(p.stats.age)}</b></span>
                 </div>` : '';
+            // Détails affichés seulement avec les grandes cases
+            const details = `
+                <dl class="mwi-r-details">
+                    <dt>Statut</dt><dd>${tag}</dd>
+                    <dt>Mode</dt><dd>${p.ironcow ? '🐄 Ironcow' : 'Standard'}</dd>
+                    ${cat === 'guild' ? `<dt>Guilde</dt><dd>${esc(p.guilde)}</dd><dt>Rang</dt><dd>${esc(p.rang)}</dd>` : ''}
+                    ${(cat === 'free' || cat === 'guild') ? `<dt>🛡️ Total</dt><dd>${esc(p.stats.total)}</dd><dt>⚔️ Combat</dt><dd>${esc(p.stats.combat)}</dd><dt>⏳ Age</dt><dd>${esc(p.stats.age)}</dd>` : ''}
+                </dl>`;
             return `<li class="mwi-r-card ${cat}">
                 <div class="mwi-r-name"><span><span class="mwi-r-player" data-player="${esc(p.nom)}" title="Voir le profil" style="${nameStyle}">${esc(p.nom)}</span>${p.ironcow ? '<span class="mwi-r-iron" title="Ironcow">🐄</span>' : ''}</span><span class="mwi-r-right"><button class="mwi-r-player mwi-r-profile" data-player="${esc(p.nom)}" title="Ouvrir le profil">Profile</button><span class="mwi-r-tag">${tag}</span></span></div>
                 ${stats}
+                ${details}
             </li>`;
         }).join('');
     }
