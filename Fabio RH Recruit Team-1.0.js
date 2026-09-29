@@ -423,11 +423,11 @@
                         <option value="standard">Standard</option>
                         <option value="ironcow">🐄 Ironcow (IC)</option>
                     </select>
-                    <select class="mwi-r-select" id="mwi-size" title="Taille des cases">
-                        <option value="large">Grandes</option>
-                        <option value="medium">Moyennes</option>
-                        <option value="small">Petites</option>
-                    </select>
+                    <div class="mwi-r-sizes" id="mwi-size" title="Taille des cases">
+                        <button class="mwi-r-icon" data-size="large" title="Grandes cases : toutes les infos"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><rect x="1" y="1" width="14" height="6" rx="1"/><rect x="1" y="9" width="14" height="6" rx="1"/></svg></button>
+                        <button class="mwi-r-icon" data-size="medium" title="Cases moyennes"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><rect x="1" y="1" width="14" height="4" rx="1"/><rect x="1" y="6" width="14" height="4" rx="1"/><rect x="1" y="11" width="14" height="4" rx="1"/></svg></button>
+                        <button class="mwi-r-icon" data-size="small" title="Petites cases : profil au survol"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><rect x="1" y="1" width="14" height="2" rx="1"/><rect x="1" y="4" width="14" height="2" rx="1"/><rect x="1" y="7" width="14" height="2" rx="1"/><rect x="1" y="10" width="14" height="2" rx="1"/><rect x="1" y="13" width="14" height="2" rx="1"/></svg></button>
+                    </div>
                     <button class="mwi-r-btn" id="mwi-btn-copy" title="Copier les pseudos affichés">Copier</button>
                     <button class="mwi-r-btn" id="mwi-btn-clear" title="Vider la liste">Vider</button>
                 </div>
@@ -490,13 +490,16 @@
             saveUI({ modeFilter: currentMode });
             updateModalUI();
         });
-        const sizeSelect = document.getElementById('mwi-size');
-        modal.dataset.size = ['large', 'small'].includes(saved.cardSize) ? saved.cardSize : 'medium';
-        sizeSelect.value = modal.dataset.size;
-        sizeSelect.addEventListener('change', (e) => {
-            modal.dataset.size = e.target.value;
-            saveUI({ cardSize: e.target.value });
-        });
+        const sizeBtns = document.querySelectorAll('#mwi-size button');
+        const setSize = (size) => {
+            modal.dataset.size = size;
+            sizeBtns.forEach(b => b.classList.toggle('active', b.dataset.size === size));
+        };
+        setSize(['large', 'small'].includes(saved.cardSize) ? saved.cardSize : 'medium');
+        sizeBtns.forEach(b => b.addEventListener('click', () => {
+            setSize(b.dataset.size);
+            saveUI({ cardSize: b.dataset.size });
+        }));
         document.getElementById('mwi-btn-chans').addEventListener('click', renderChannels);
         launcher.addEventListener('click', renderChannels);
         renderChannels();

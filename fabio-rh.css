@@ -129,6 +129,9 @@
 .mwi-r-card.guild .mwi-r-tag { color: var(--r-accent); }
 .mwi-r-stats { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 5px; font-size: 12px; color: var(--r-muted); }
 .mwi-r-stats b { color: var(--r-text); font-weight: 600; }
+.mwi-r-sizes { display: flex; gap: 2px; padding: 2px; background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px; }
+.mwi-r-sizes .mwi-r-icon { border-color: transparent; color: var(--r-muted); }
+.mwi-r-sizes .mwi-r-icon.active { color: var(--r-accent); background: var(--r-panel-2); border-color: var(--r-accent); }
 .mwi-r-details { display: none; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 6px 0 0; font-size: 12px; }
 .mwi-r-details dt { color: var(--r-muted); }
 .mwi-r-details dd { margin: 0; color: var(--r-text); font-weight: 600; }
