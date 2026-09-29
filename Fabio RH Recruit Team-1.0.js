@@ -386,6 +386,57 @@
         });
     }
 
+    // Redimensionnement en attrapant n'importe quel bord ou coin de la modale
+    function enableResize(modal) {
+        const EDGE = 6, MIN_W = 280, MIN_H = 220;
+        let st = null;
+        const edgeOf = (e) => {
+            const r = modal.getBoundingClientRect();
+            let d = '';
+            if (e.clientY >= r.bottom - EDGE) d += 's'; else if (e.clientY <= r.top + EDGE) d += 'n';
+            if (e.clientX >= r.right - EDGE) d += 'e'; else if (e.clientX <= r.left + EDGE) d += 'w';
+            return d;
+        };
+        modal.addEventListener('mousemove', (e) => {
+            if (st) return;
+            const d = modal.dataset.mode === 'normal' ? edgeOf(e) : '';
+            modal.style.cursor = d ? d + '-resize' : '';
+        });
+        modal.addEventListener('mouseleave', () => { if (!st) modal.style.cursor = ''; });
+        modal.addEventListener('mousedown', (e) => {
+            if (modal.dataset.mode !== 'normal') return;
+            const d = edgeOf(e);
+            if (!d) return;
+            const r = modal.getBoundingClientRect();
+            st = { d, x: e.clientX, y: e.clientY, r };
+            modal.style.left = r.left + 'px'; modal.style.top = r.top + 'px'; modal.style.right = 'auto';
+            e.preventDefault();
+            e.stopPropagation(); // pas de déplacement en même temps
+        }, true);
+        document.addEventListener('mousemove', (e) => {
+            if (!st) return;
+            const { d, x, y, r } = st;
+            let w = r.width, h = r.height;
+            if (d.includes('e')) w = r.width + e.clientX - x;
+            if (d.includes('w')) w = r.width - (e.clientX - x);
+            if (d.includes('s')) h = r.height + e.clientY - y;
+            if (d.includes('n')) h = r.height - (e.clientY - y);
+            w = Math.min(Math.max(MIN_W, w), window.innerWidth);
+            h = Math.min(Math.max(MIN_H, h), window.innerHeight);
+            modal.style.width = w + 'px';
+            modal.style.height = h + 'px';
+            if (d.includes('w')) modal.style.left = (r.right - w) + 'px';
+            if (d.includes('n')) modal.style.top = (r.bottom - h) + 'px';
+            modal.dataset.sized = '1';
+        });
+        document.addEventListener('mouseup', () => {
+            if (!st) return;
+            st = null;
+            modal.style.cursor = '';
+            saveUI({ left: modal.style.left, top: modal.style.top, width: modal.style.width, height: modal.style.height });
+        });
+    }
+
     function createTrackerModal() {
         document.getElementById('mwi-tracker-modal')?.remove();
         document.getElementById('mwi-radar-launcher')?.remove();
@@ -437,6 +488,7 @@
                 </div>
                 <div class="mwi-r-chans" id="mwi-channels"></div>
                 <ul class="mwi-r-list" id="mwi-tracker-list"></ul>
+                <div class="mwi-r-pview" id="mwi-profile-view"></div>
                 <div class="mwi-r-progress" id="mwi-progress"><div id="mwi-progress-bar"></div></div>
                 <div class="mwi-r-actions">
                     <button class="mwi-r-btn" id="mwi-btn-scan">1. Scanner Chat</button>
@@ -460,6 +512,11 @@
         if (saved.left && saved.top) {
             modal.style.left = saved.left; modal.style.top = saved.top; modal.style.right = 'auto';
         }
+        if (saved.width && saved.height) {
+            modal.style.width = saved.width; modal.style.height = saved.height;
+            modal.dataset.sized = '1';
+        }
+        modal.dataset.view = 'list';
         setMode(saved.mode === 'max' || saved.mode === 'min' ? saved.mode : 'normal');
         setVisible(saved.visible !== false);
 
@@ -467,10 +524,19 @@
         document.getElementById('mwi-btn-process').addEventListener('click', processUnverifiedProfiles);
         document.getElementById('mwi-btn-close').addEventListener('click', () => setVisible(false));
         launcher.addEventListener('click', () => setVisible(true));
+        // Bouton Profile : ouvre le profil dans le jeu ; clic sur la case : ouvre la fiche dans la modale
         document.getElementById('mwi-tracker-list').addEventListener('click', e => {
-            const el = e.target.closest('.mwi-r-player');
-            if (!el) return;
-            if (!window.mwiSendProfileCommand(el.dataset.player)) setStatus('Champ de chat introuvable.', 'err');
+            const btn = e.target.closest('.mwi-r-profile');
+            if (btn) { openGameProfile(btn.dataset.player); return; }
+            const card = e.target.closest('.mwi-r-card[data-player]');
+            if (card) openProfileView(card.dataset.player);
+        });
+        document.getElementById('mwi-profile-view').addEventListener('click', e => {
+            const t = e.target.closest('[data-action]');
+            if (!t) return;
+            if (t.dataset.action === 'back') closeProfileView();
+            else if (t.dataset.action === 'game') openGameProfile(t.dataset.player);
+            else if (t.dataset.action === 'section') { currentSection = +t.dataset.index; renderProfileView(); }
         });
         document.getElementById('mwi-btn-max').addEventListener('click', () => { setMode(modal.dataset.mode === 'max' ? 'normal' : 'max'); });
         document.getElementById('mwi-btn-min').addEventListener('click', () => { setMode(modal.dataset.mode === 'min' ? 'normal' : 'min'); });
@@ -513,7 +579,98 @@
         });
 
         enableDrag(modal, document.getElementById('mwi-r-head'));
+        enableResize(modal);
         updateModalUI();
+    }
+
+    let currentProfile = null;
+    let currentSection = 0;
+
+    function openGameProfile(username) {
+        if (!window.mwiSendProfileCommand(username)) setStatus('Champ de chat introuvable.', 'err');
+    }
+    function openProfileView(username) {
+        currentProfile = username;
+        currentSection = 0;
+        document.getElementById('mwi-tracker-modal').dataset.view = 'profile';
+        renderProfileView();
+    }
+    function closeProfileView() {
+        currentProfile = null;
+        document.getElementById('mwi-tracker-modal').dataset.view = 'list';
+        updateModalUI();
+    }
+
+    // Texte brut d'un onglet : regroupe chaque libellé avec la valeur qui le suit
+    const isValue = (l) => /^[\d\s.,  /()%+-]+$|^\d|^(?:\d+y\s*)?\d+d$|^Floor/i.test(l);
+    function linesToHtml(lignes) {
+        const items = [];
+        for (let i = 0; i < lignes.length; i++) {
+            const l = lignes[i], next = lignes[i + 1];
+            if (/of$/i.test(l) && next) { items.push([l.replace(/\s*of$/i, ''), next]); i++; }  // "Officer of" + guilde
+            else if (!isValue(l) && next !== undefined && isValue(next)) { items.push([l, next]); i++; }
+            else items.push([null, l]);
+        }
+        return `<div class="mwi-r-pairs">${items.map(([k, v]) => k
+            ? `<div class="mwi-r-pair"><span>${esc(k)}</span><b>${esc(v)}</b></div>`
+            : `<div class="mwi-r-pair solo"><b>${esc(v)}</b></div>`).join('')}</div>`;
+    }
+
+    function renderProfileView() {
+        const view = document.getElementById('mwi-profile-view');
+        const p = currentProfile && recrues.get(currentProfile);
+        if (!view || !p) return;
+        const cat = playerCategory(p);
+        const statut = { free: 'Sans guilde', guild: 'En guilde', fail: 'Profil illisible', pending: 'En attente' }[cat];
+        const nameStyle = p.color ? `color: ${p.color};` : '';
+
+        const resume = `<dl class="mwi-r-pgrid">
+                <dt>Statut</dt><dd class="mwi-r-pstat ${cat}">${statut}</dd>
+                <dt>Mode</dt><dd>${p.ironcow ? '🐄 Ironcow' : 'Standard'}</dd>
+                ${cat === 'guild' ? `<dt>Guilde</dt><dd>${esc(p.guilde)}</dd><dt>Rang</dt><dd>${esc(p.rang)}</dd>` : ''}
+                <dt>🛡️ Total</dt><dd>${esc(p.stats.total)}</dd>
+                <dt>⚔️ Combat</dt><dd>${esc(p.stats.combat)}</dd>
+                <dt>⏳ Age</dt><dd>${esc(p.stats.age)}</dd>
+            </dl>`;
+        const sections = [{ titre: 'Résumé', html: resume }].concat(
+            ((p.profil && p.profil.sections) || []).map(s => ({
+                titre: s.titre,
+                html: (s.tuiles && s.tuiles.length) || s.lignes.length
+                    ? (s.lignes.length ? linesToHtml(s.lignes) : '') + tilesToHtml(s.tuiles || [])
+                    : '<p class="mwi-r-pempty">Rien dans cet onglet.</p>'
+            })));
+        if (currentSection >= sections.length) currentSection = 0;
+        const hint = p.profil ? '' : `<p class="mwi-r-pempty">${p.verifie
+            ? 'Détails non récupérés pour ce joueur : relance la vérification.'
+            : 'Profil pas encore vérifié : clique sur « 2. Vérifier Profils » pour récupérer toutes les infos.'}</p>`;
+
+        view.innerHTML = `
+            <div class="mwi-r-phead">
+                <button class="mwi-r-btn" data-action="back" title="Retour à la liste">← Retour</button>
+                <span class="mwi-r-pname" style="${nameStyle}">${esc(p.nom)}${p.ironcow ? ' <span class="mwi-r-iron">🐄</span>' : ''}</span>
+                <button class="mwi-r-profile" data-action="game" data-player="${esc(p.nom)}" title="Ouvrir le profil dans le jeu">Profile</button>
+            </div>
+            <div class="mwi-r-ptabs">${sections.map((s, i) =>
+                `<button class="mwi-r-ptab${i === currentSection ? ' active' : ''}" data-action="section" data-index="${i}">${esc(s.titre)}</button>`).join('')}
+            </div>
+            <div class="mwi-r-pbody">${sections[currentSection].html}${currentSection === 0 ? hint : ''}</div>`;
+    }
+
+    function tilesToHtml(tuiles) {
+        if (!tuiles.length) return '';
+        const placed = tuiles.every(t => t.col !== undefined);
+        const cols = placed ? Math.max(...tuiles.map(t => t.col)) + 1 : 0;
+        const style = placed ? ` style="grid-template-columns: repeat(${cols}, var(--tile))"` : '';
+        const valueClass = (t) => /^\+\d/.test(t) ? ' plus' : /^[\d\s., ]+[kKmM]?$/.test(t) ? ' num' : '';
+        return `<div class="mwi-r-tiles${placed ? ' placed' : ''}"${style}>${tuiles.map(t => {
+            const textes = t.textes || (t.texte ? [{ t: t.texte, coin: 'tl' }] : []);
+            const pos = placed ? ` style="grid-column: ${t.col + 1}; grid-row: ${t.row + 1}"` : '';
+            return `<div class="mwi-r-tile"${pos} title="${esc(t.nom || textes.map(x => x.t).join(' '))}">
+                <div class="mwi-r-tico">${t.icone}</div>
+                ${textes.map(x => `<span class="mwi-r-tt ${x.coin}${valueClass(x.t)}">${esc(x.t)}</span>`).join('')}
+                ${(t.badges || []).map(bd => `<span class="mwi-r-tb ${bd.coin}">${bd.icone}</span>`).join('')}
+            </div>`;
+        }).join('')}</div>`;
     }
 
     function playerCategory(p) {
@@ -548,6 +705,7 @@
     function updateModalUI() {
         const list = document.getElementById('mwi-tracker-list');
         if (!list) return;
+        if (currentProfile) renderProfileView();
 
         const all = Array.from(recrues.values());
         const counts = { free: 0, guild: 0, fail: 0, pending: 0 };
@@ -593,8 +751,8 @@
                     ${cat === 'guild' ? `<dt>Guilde</dt><dd>${esc(p.guilde)}</dd><dt>Rang</dt><dd>${esc(p.rang)}</dd>` : ''}
                     ${(cat === 'free' || cat === 'guild') ? `<dt>🛡️ Total</dt><dd>${esc(p.stats.total)}</dd><dt>⚔️ Combat</dt><dd>${esc(p.stats.combat)}</dd><dt>⏳ Age</dt><dd>${esc(p.stats.age)}</dd>` : ''}
                 </dl>`;
-            return `<li class="mwi-r-card ${cat}">
-                <div class="mwi-r-name"><span class="mwi-r-who"><span class="mwi-r-player" data-player="${esc(p.nom)}" title="Voir le profil" style="${nameStyle}">${esc(p.nom)}</span>${p.ironcow ? '<span class="mwi-r-iron" title="Ironcow">🐄</span>' : ''}</span><span class="mwi-r-right"><button class="mwi-r-player mwi-r-profile" data-player="${esc(p.nom)}" title="Ouvrir le profil">Profile</button><span class="mwi-r-tag" title="${tag}">${tag}</span></span></div>
+            return `<li class="mwi-r-card ${cat}" data-player="${esc(p.nom)}" title="Voir la fiche du joueur">
+                <div class="mwi-r-name"><span class="mwi-r-who"><span class="mwi-r-player" style="${nameStyle}">${esc(p.nom)}</span>${p.ironcow ? '<span class="mwi-r-iron" title="Ironcow">🐄</span>' : ''}</span><span class="mwi-r-right"><button class="mwi-r-profile" data-player="${esc(p.nom)}" title="Ouvrir le profil">Profile</button><span class="mwi-r-tag" title="${tag}">${tag}</span></span></div>
                 ${stats}
                 ${details}
             </li>`;
@@ -684,6 +842,182 @@
         };
     }
 
+    // Onglets du profil du jeu (MuiTabs), cherchés en remontant depuis le bloc du profil
+    function findProfileTabs(profileEl) {
+        let el = profileEl;
+        for (let i = 0; i < 8 && el && el !== document.body; i++, el = el.parentElement) {
+            if ((el.textContent || '').length > 20000) break; // on est sorti du profil
+            const tl = Array.from(el.querySelectorAll('[role="tablist"]')).find(t =>
+                !t.closest('#mwi-tracker-modal') && !t.closest('[class*="Chat_"]')
+                && !t.querySelector('[data-mention-channel]'));
+            if (tl) return { root: el, tablist: tl, tabs: Array.from(tl.querySelectorAll('[role="tab"]')) };
+        }
+        return null;
+    }
+
+    // Contenu de l'onglet affiché : tabpanel MUI, sinon le bloc qui suit la barre d'onglets
+    function findTabPanel(root, tablist) {
+        const panel = Array.from(root.querySelectorAll('[role="tabpanel"]')).find(p => !p.hidden && p.offsetParent !== null);
+        if (panel) return panel;
+        const bar = tablist.closest('[class*="MuiTabs-root"]') || tablist;
+        return bar.nextElementSibling;
+    }
+
+    // Nom lisible tiré d'une icône du jeu : "#cheesesmithing" -> "Cheesesmithing"
+    function iconName(icon) {
+        const use = icon.tagName.toLowerCase() === 'svg' ? icon.querySelector('use') : null;
+        const ref = use ? (use.getAttribute('href') || use.getAttribute('xlink:href') || '') : '';
+        const raw = (ref.split('#')[1] || icon.getAttribute('aria-label') || icon.getAttribute('alt') || icon.getAttribute('title') || '').trim();
+        return raw.replace(/[_-]+/g, ' ').replace(/\w/g, c => c.toUpperCase());
+    }
+
+    // Icône réduite à l'essentiel (le dessin), sans classes ni styles du jeu
+    function iconMarkup(icon) {
+        if (icon.tagName.toLowerCase() === 'img') return `<img src="${esc(icon.src)}" alt="">`;
+        const use = icon.querySelector('use');
+        const ref = use && (use.getAttribute('href') || use.getAttribute('xlink:href'));
+        if (ref) return `<svg viewBox="${esc(icon.getAttribute('viewBox') || '0 0 100 100')}"><use href="${esc(ref)}"></use></svg>`;
+        const clone = icon.cloneNode(true);
+        [clone, ...clone.querySelectorAll('*')].forEach(n => ['class', 'style', 'id', 'width', 'height'].forEach(at => n.removeAttribute(at)));
+        return clone.outerHTML;
+    }
+
+    // Coin d'un élément dans sa case : t/b (haut/bas) + l/c/r (gauche/centre/droite)
+    function cornerOf(r, box) {
+        const cx = (r.left + r.right) / 2 - box.left, cy = (r.top + r.bottom) / 2 - box.top;
+        return (cy < box.height / 2 ? 't' : 'b') + (cx < box.width / 3 ? 'l' : cx > box.width * 2 / 3 ? 'r' : 'c');
+    }
+
+    // Données d'un onglet : les cases (icône principale, textes et petits badges avec leur coin,
+    // position dans la grille du jeu) et les lignes de texte restantes
+    function extractPanel(panel) {
+        const pr = panel.getBoundingClientRect();
+        const icons = Array.from(panel.querySelectorAll('svg, img'))
+            .filter(i => !i.parentElement.closest('svg'))
+            .map(el => ({ el, r: el.getBoundingClientRect() }))
+            .filter(o => o.r.width >= 12 && o.r.width <= 90)
+            .sort((x, y) => y.r.width * y.r.height - x.r.width * x.r.height);
+        const pris = new Set(), dansTuiles = new Set(), tuiles = [];
+
+        for (const o of icons) {
+            if (pris.has(o.el)) continue;
+            // La case est le plus grand ancêtre qui reste à peine plus grand que l'icône
+            let tile = null;
+            for (let el = o.el.parentElement, k = 0; k < 6 && el && el !== panel; k++, el = el.parentElement) {
+                const r = el.getBoundingClientRect();
+                if (r.width > o.r.width * 2.2 || r.height > o.r.height * 2.2) break;
+                tile = el;
+            }
+            if (!tile) continue; // icône dans une ligne de texte
+            const inner = icons.filter(x => tile.contains(x.el));
+            if (inner.some(x => pris.has(x.el))) continue;
+            inner.forEach(x => pris.add(x.el));
+
+            const box = tile.getBoundingClientRect();
+            const badges = inner.filter(x => x !== o && x.r.width < o.r.width * 0.7)
+                .map(x => ({ icone: iconMarkup(x.el), coin: cornerOf(x.r, box) }));
+            const textes = [];
+            const walker = document.createTreeWalker(tile, NodeFilter.SHOW_TEXT);
+            for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+                const t = n.textContent.trim();
+                if (!t || n.parentElement.closest('svg')) continue;
+                const range = document.createRange();
+                range.selectNodeContents(n);
+                textes.push({ t, coin: cornerOf(range.getBoundingClientRect(), box) });
+                dansTuiles.add(t);
+            }
+            textLines(tile).forEach(l => dansTuiles.add(l));
+            tuiles.push({
+                icone: iconMarkup(o.el), nom: iconName(o.el), textes, badges,
+                x: box.left - pr.left, y: box.top - pr.top, w: box.width, h: box.height
+            });
+        }
+        placeInGrid(tuiles);
+        const lignes = textLines(panel).filter(l => !dansTuiles.has(l));
+        return { tuiles, lignes };
+    }
+
+    // Colonne / ligne de chaque case d'après sa position à l'écran (garde les trous, ex. l'équipement)
+    function placeInGrid(tuiles) {
+        if (!tuiles.length) return;
+        const axis = (key, size) => {
+            const vals = tuiles.map(t => t[key]).sort((a, b) => a - b);
+            const med = tuiles.map(t => t[size]).sort((a, b) => a - b)[Math.floor(tuiles.length / 2)] || 1;
+            const centres = [];
+            for (const v of vals) if (!centres.length || v - centres[centres.length - 1] > med / 2) centres.push(v);
+            const pas = centres.slice(1).reduce((m, c, i) => Math.min(m, c - centres[i]), Infinity);
+            const step = isFinite(pas) ? pas : med;
+            tuiles.forEach(t => { t[key === 'x' ? 'col' : 'row'] = Math.min(40, Math.round((t[key] - vals[0]) / step)); });
+        };
+        axis('x', 'w');
+        axis('y', 'h');
+    }
+
+    const textLines = (el) => (el.innerText || '').split('\n').map(l => l.trim()).filter(Boolean);
+
+    // Clique chaque onglet, attend que le contenu change puis garde uniquement les lignes propres à l'onglet
+    // Plus petit bloc (hors barre d'onglets) contenant la première et la dernière ligne qui ont changé
+    function findPanelByLines(root, tablist, changed) {
+        if (!changed.length) return null;
+        const first = changed[0], last = changed[changed.length - 1];
+        let best = null, bestLen = Infinity;
+        for (const el of root.querySelectorAll('div, section, ul, table')) {
+            if (el.contains(tablist)) continue;
+            const t = el.innerText || '';
+            if (t.length < bestLen && t.includes(first) && t.includes(last)) { best = el; bestLen = t.length; }
+        }
+        return best;
+    }
+
+    async function showTab(root, tab) {
+        if (tab.getAttribute('aria-selected') === 'true') return;
+        const before = root.innerText;
+        tab.click();
+        for (let k = 0; k < 15; k++) {
+            await sleep(POLL_MS);
+            if (root.innerText !== before) break;
+        }
+        await sleep(POLL_MS); // laisse le contenu finir de s'afficher
+    }
+
+    // Parcourt chaque onglet puis revient au premier ; le contenu d'un onglet est repéré
+    // grâce aux lignes qui ont changé par rapport à l'onglet affiché juste avant
+    async function readProfileTabs(profileEl) {
+        const found = findProfileTabs(profileEl);
+        if (!found || found.tabs.length === 0) return { root: profileEl, sections: [{ titre: 'Profil', lignes: textLines(profileEl) }] };
+
+        const { root, tablist, tabs } = found;
+        const labels = tabs.map(t => (t.innerText || t.textContent || '').trim() || 'Onglet');
+        const raw = new Array(tabs.length), data = new Array(tabs.length);
+        const order = tabs.length > 1 ? [...tabs.keys(), 0] : [0];
+        let prevLines = null;
+        for (let step = 0; step < order.length; step++) {
+            const i = order[step];
+            await showTab(root, tabs[i]);
+            const lines = textLines(root);
+            if (prevLines) {
+                const prevSet = new Set(prevLines);
+                const panel = findPanelByLines(root, tablist, lines.filter(l => !prevSet.has(l))) || findTabPanel(root, tablist);
+                if (panel) data[i] = extractPanel(panel);
+            }
+            if (raw[i] === undefined) raw[i] = lines;
+            prevLines = lines;
+        }
+        if (tabs.length === 1) {
+            const panel = findTabPanel(root, tablist);
+            if (panel) data[0] = extractPanel(panel);
+        }
+
+        // Les lignes présentes dans tous les onglets (en-tête, noms des onglets) ne sont pas du contenu
+        const common = raw.length > 1 ? new Set(raw[0].filter(l => raw.every(r => r.includes(l)))) : new Set();
+        labels.forEach(l => common.add(l));
+        return { root, sections: raw.map((lignes, i) => ({
+            titre: labels[i],
+            tuiles: data[i] ? data[i].tuiles : [],
+            lignes: (data[i] ? data[i].lignes : lignes).filter(l => !common.has(l))
+        })) };
+    }
+
     async function analyzeProfile(username) {
         const playerData = recrues.get(username);
         if (!playerData) return true;
@@ -724,6 +1058,16 @@
         // Le badge [IC] du profil fait foi ; sinon on garde ce que le chat avait indiqué
         if (nameEl) playerData.ironcow = icFromDom;
         else if (result.ironcow) playerData.ironcow = true;
+
+        // Lecture de chaque onglet du profil (sections affichées ensuite dans la fiche du joueur)
+        try {
+            const lecture = await readProfileTabs(found.el);
+            if (lecture.sections.length) playerData.profil = { sections: lecture.sections, lu: Date.now() };
+            // Le jeu a pu redessiner le bloc en changeant d'onglet : on ferme via le conteneur des onglets
+            if (!found.el.isConnected) found.el = lecture.root;
+        } catch (e) {
+            log('Lecture des onglets du profil impossible :', e);
+        }
 
         const closeBtn = found.el.querySelector('button[aria-label="Close"], [class*="close" i], svg[class*="close" i]');
         if (closeBtn) {
