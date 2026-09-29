@@ -212,6 +212,14 @@
 .mwi-r-game { color: var(--r-text); font-size: 13px; }
 .mwi-r-game svg { max-width: 100%; }
 .mwi-r-ptab:focus { outline: none; }
+.mwi-r-pairs { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px; }
+.mwi-r-pair {
+    display: flex; flex-direction: column; gap: 2px; padding: 6px 10px;
+    background: var(--r-bg); border: 1px solid var(--r-border); border-left: 3px solid var(--r-accent); border-radius: 5px;
+}
+.mwi-r-pair span { font-size: 11px; color: var(--r-muted); }
+.mwi-r-pair b { font-size: 14px; color: var(--r-text); }
+.mwi-r-pair.solo { justify-content: center; }
 .mwi-r-pempty { margin: 10px 0 0; font-style: italic; color: var(--r-muted); font-size: 12px; }
 
 .mwi-r-empty { padding: 18px 8px; text-align: center; font-style: italic; color: var(--r-muted); background: var(--r-panel); border: 1px dashed var(--r-border); border-radius: 6px; }

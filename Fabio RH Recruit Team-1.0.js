@@ -601,6 +601,21 @@
         updateModalUI();
     }
 
+    // Texte brut d'un onglet : regroupe chaque libellé avec la valeur qui le suit
+    const isValue = (l) => /^[\d\s.,  /()%+-]+$|^\d|^(?:\d+y\s*)?\d+d$|^Floor/i.test(l);
+    function linesToHtml(lignes) {
+        const items = [];
+        for (let i = 0; i < lignes.length; i++) {
+            const l = lignes[i], next = lignes[i + 1];
+            if (/of$/i.test(l) && next) { items.push([l.replace(/\s*of$/i, ''), next]); i++; }  // "Officer of" + guilde
+            else if (!isValue(l) && next !== undefined && isValue(next)) { items.push([l, next]); i++; }
+            else items.push([null, l]);
+        }
+        return `<div class="mwi-r-pairs">${items.map(([k, v]) => k
+            ? `<div class="mwi-r-pair"><span>${esc(k)}</span><b>${esc(v)}</b></div>`
+            : `<div class="mwi-r-pair solo"><b>${esc(v)}</b></div>`).join('')}</div>`;
+    }
+
     function renderProfileView() {
         const view = document.getElementById('mwi-profile-view');
         const p = currentProfile && recrues.get(currentProfile);
@@ -623,7 +638,7 @@
                 html: s.html
                     ? `<div class="mwi-r-game">${s.html}</div>`
                     : s.lignes.length
-                    ? `<ul class="mwi-r-plines">${s.lignes.map(l => `<li>${esc(l)}</li>`).join('')}</ul>`
+                    ? linesToHtml(s.lignes)
                     : '<p class="mwi-r-pempty">Rien dans cet onglet.</p>'
             })));
         if (currentSection >= sections.length) currentSection = 0;
