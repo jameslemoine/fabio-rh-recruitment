@@ -221,6 +221,10 @@
 .mwi-r-pair span { font-size: 11px; color: var(--r-muted); }
 .mwi-r-pair b { font-size: 14px; color: var(--r-text); }
 .mwi-r-pair.solo { justify-content: center; }
+.mwi-r-game .mwi-r-tiles {
+    display: flex !important; flex-direction: row !important; flex-wrap: wrap !important;
+    gap: 6px !important; width: auto !important; height: auto !important;
+}
 .mwi-r-pempty { margin: 10px 0 0; font-style: italic; color: var(--r-muted); font-size: 12px; }
 
 .mwi-r-empty { padding: 18px 8px; text-align: center; font-style: italic; color: var(--r-muted); background: var(--r-panel); border: 1px dashed var(--r-border); border-radius: 6px; }

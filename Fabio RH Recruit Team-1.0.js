@@ -656,6 +656,17 @@
                 `<button class="mwi-r-ptab${i === currentSection ? ' active' : ''}" data-action="section" data-index="${i}">${esc(s.titre)}</button>`).join('')}
             </div>
             <div class="mwi-r-pbody">${sections[currentSection].html}${currentSection === 0 ? hint : ''}</div>`;
+        const game = view.querySelector('.mwi-r-game');
+        if (game) fixGameLayout(game);
+    }
+
+    // Hors de son contexte, le HTML du jeu perd sa grille : les blocs qui contiennent
+    // plusieurs cases sont remis en ligne avec retour à la ligne
+    function fixGameLayout(root) {
+        root.querySelectorAll('*').forEach(el => {
+            const kids = Array.from(el.children).filter(k => k.tagName !== 'svg' && k.tagName !== 'use');
+            if (kids.length >= 3 && !el.closest('svg')) el.classList.add('mwi-r-tiles');
+        });
     }
 
     function playerCategory(p) {
