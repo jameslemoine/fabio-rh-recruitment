@@ -85,7 +85,7 @@
 .mwi-r-chan-empty { font-size: 11px; font-style: italic; color: var(--r-muted); }
 .mwi-r-iron { font-size: 11px; font-weight: 700; color: var(--r-warn); margin-left: 4px; }
 .mwi-r-select {
-    flex: 1; padding: 5px 8px; color: var(--r-text);
+    flex: 0 1 150px; padding: 5px 8px; color: var(--r-text);
     background: var(--r-panel); border: 1px solid var(--r-border);
     border-radius: 5px; font-size: 12px; outline: none;
 }
@@ -103,6 +103,7 @@
 .mwi-r-btn:disabled { opacity: .55; cursor: not-allowed; }
 
 .mwi-r-list {
+    overflow-x: hidden; padding-right: 2px;
     flex: 1; min-height: 120px; max-height: 320px; overflow-y: auto;
     list-style: none; margin: 0; padding: 0;
     display: grid; grid-template-columns: 1fr; gap: 6px; align-content: start;
@@ -122,8 +123,14 @@
 .mwi-r-card.guild { border-left-color: var(--r-accent); }
 .mwi-r-card.fail { border-left-color: var(--r-err); }
 .mwi-r-card.pending { border-left-color: var(--r-muted); }
-.mwi-r-name { font-weight: 700; font-size: 14px; color: var(--r-text); display: flex; justify-content: space-between; gap: 6px; }
-.mwi-r-tag { font-size: 11px; font-weight: 700; color: var(--r-muted); }
+.mwi-r-name { font-weight: 700; font-size: 14px; color: var(--r-text); display: flex; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; }
+.mwi-r-who { display: flex; align-items: center; min-width: 0; overflow: hidden; }
+.mwi-r-who .mwi-r-player { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mwi-r-iron { flex-shrink: 0; }
+.mwi-r-right { flex-shrink: 0; }
+.mwi-r-card { min-width: 0; transition: border-color .15s, background .15s; }
+.mwi-r-card:hover { background: var(--r-panel-2); border-color: var(--r-accent); }
+.mwi-r-tag { font-size: 11px; font-weight: 700; color: var(--r-muted); white-space: nowrap; }
 .mwi-r-card:not(.guild):not(.fail):not(.pending) .mwi-r-tag { color: var(--r-ok); }
 .mwi-r-card.fail .mwi-r-tag { color: var(--r-err); }
 .mwi-r-card.guild .mwi-r-tag { color: var(--r-accent); }
@@ -149,8 +156,15 @@
 #mwi-tracker-modal[data-size="small"] .mwi-r-name { font-size: 13px; align-items: center; }
 #mwi-tracker-modal[data-size="small"] .mwi-r-stats { display: none; }
 #mwi-tracker-modal[data-size="small"] .mwi-r-list { gap: 3px; }
-#mwi-tracker-modal[data-size="small"][data-mode="max"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+#mwi-tracker-modal[data-size="small"][data-mode="max"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
 #mwi-tracker-modal[data-size="small"] .mwi-r-card:hover .mwi-r-profile { visibility: visible; }
+#mwi-tracker-modal[data-size="small"] .mwi-r-card { border-left-width: 1px; }
+#mwi-tracker-modal[data-size="small"] .mwi-r-tag { font-size: 0; }
+#mwi-tracker-modal[data-size="small"] .mwi-r-tag::before {
+    content: ''; display: block; width: 8px; height: 8px; border-radius: 50%; background: currentColor;
+}
+#mwi-tracker-modal[data-size="small"] .mwi-r-card.pending .mwi-r-tag { color: var(--r-muted); }
+#mwi-tracker-modal[data-size="medium"][data-mode="max"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
 .mwi-r-empty { padding: 18px 8px; text-align: center; font-style: italic; color: var(--r-muted); background: var(--r-panel); border: 1px dashed var(--r-border); border-radius: 6px; }
 
 .mwi-r-progress { height: 4px; background: var(--r-panel); border-radius: 2px; overflow: hidden; display: none; }
