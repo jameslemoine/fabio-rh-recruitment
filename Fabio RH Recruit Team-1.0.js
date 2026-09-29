@@ -635,10 +635,8 @@
         const sections = [{ titre: 'Résumé', html: resume }].concat(
             ((p.profil && p.profil.sections) || []).map(s => ({
                 titre: s.titre,
-                html: s.html
-                    ? `<div class="mwi-r-game">${s.html}</div>`
-                    : s.lignes.length
-                    ? linesToHtml(s.lignes)
+                html: (s.tuiles && s.tuiles.length) || s.lignes.length
+                    ? (s.lignes.length ? linesToHtml(s.lignes) : '') + tilesToHtml(s.tuiles || [])
                     : '<p class="mwi-r-pempty">Rien dans cet onglet.</p>'
             })));
         if (currentSection >= sections.length) currentSection = 0;
@@ -656,17 +654,16 @@
                 `<button class="mwi-r-ptab${i === currentSection ? ' active' : ''}" data-action="section" data-index="${i}">${esc(s.titre)}</button>`).join('')}
             </div>
             <div class="mwi-r-pbody">${sections[currentSection].html}${currentSection === 0 ? hint : ''}</div>`;
-        const game = view.querySelector('.mwi-r-game');
-        if (game) fixGameLayout(game);
     }
 
-    // Hors de son contexte, le HTML du jeu perd sa grille : les blocs qui contiennent
-    // plusieurs cases sont remis en ligne avec retour à la ligne
-    function fixGameLayout(root) {
-        root.querySelectorAll('*').forEach(el => {
-            const kids = Array.from(el.children).filter(k => k.tagName !== 'svg' && k.tagName !== 'use');
-            if (kids.length >= 3 && !el.closest('svg')) el.classList.add('mwi-r-tiles');
-        });
+    function tilesToHtml(tuiles) {
+        if (!tuiles.length) return '';
+        return `<div class="mwi-r-tiles">${tuiles.map(t => `
+            <div class="mwi-r-tile" title="${esc(t.nom)}">
+                <div class="mwi-r-tico">${t.icone}</div>
+                ${t.texte ? `<b>${esc(t.texte)}</b>` : ''}
+                ${t.nom && t.nom !== t.texte ? `<span>${esc(t.nom)}</span>` : ''}
+            </div>`).join('')}</div>`;
     }
 
     function playerCategory(p) {
@@ -859,16 +856,46 @@
         return bar.nextElementSibling;
     }
 
-    // Copie du HTML du jeu (icônes comprises) sans scripts, gestionnaires ni id en double
-    function cloneGameHtml(el) {
-        const clone = el.cloneNode(true);
-        clone.querySelectorAll('script, iframe, input, textarea').forEach(n => n.remove());
-        [clone, ...clone.querySelectorAll('*')].forEach(n => {
-            for (const a of Array.from(n.attributes)) {
-                if (/^on/i.test(a.name) || a.name === 'id' || a.name === 'tabindex') n.removeAttribute(a.name);
+    // Nom lisible tiré d'une icône du jeu : "#cheesesmithing" -> "Cheesesmithing"
+    function iconName(icon) {
+        const use = icon.tagName.toLowerCase() === 'svg' ? icon.querySelector('use') : null;
+        const ref = use ? (use.getAttribute('href') || use.getAttribute('xlink:href') || '') : '';
+        const raw = (ref.split('#')[1] || icon.getAttribute('aria-label') || icon.getAttribute('alt') || icon.getAttribute('title') || '').trim();
+        return raw.replace(/[_-]+/g, ' ').replace(/\w/g, c => c.toUpperCase());
+    }
+
+    // Icône réduite à l'essentiel (le dessin), sans classes ni styles du jeu
+    function iconMarkup(icon) {
+        if (icon.tagName.toLowerCase() === 'img') return `<img src="${esc(icon.src)}" alt="">`;
+        const use = icon.querySelector('use');
+        const ref = use && (use.getAttribute('href') || use.getAttribute('xlink:href'));
+        if (ref) return `<svg viewBox="${esc(icon.getAttribute('viewBox') || '0 0 100 100')}"><use href="${esc(ref)}"></use></svg>`;
+        const clone = icon.cloneNode(true);
+        [clone, ...clone.querySelectorAll('*')].forEach(n => ['class', 'style', 'id', 'width', 'height'].forEach(at => n.removeAttribute(at)));
+        return clone.outerHTML;
+    }
+
+    // Données d'un onglet : les cases (une icône + un petit texte) et les lignes de texte restantes
+    function extractPanel(panel) {
+        const icons = Array.from(panel.querySelectorAll('svg, img')).filter(i => !i.parentElement.closest('svg'));
+        const tuiles = [], dansTuiles = new Set(), vus = new Set();
+        const nbIcons = (el) => Array.from(el.querySelectorAll('svg, img')).filter(i => !i.parentElement.closest('svg')).length;
+        for (const icon of icons) {
+            let tile = null;
+            for (let el = icon.parentElement, k = 0; k < 4 && el && el !== panel; k++, el = el.parentElement) {
+                if (nbIcons(el) > 1) break;          // plusieurs icônes : ce n'est plus une case
+                tile = el;
+                if ((el.innerText || '').trim()) break;
             }
-        });
-        return clone.outerHTML; // le bloc lui-même porte la mise en page (grille) du jeu
+            if (!tile || vus.has(tile)) continue;
+            vus.add(tile);
+            const lignes = textLines(tile);
+            if (lignes.join(' ').length > 60) continue; // bloc de texte, pas une case
+            lignes.forEach(l => dansTuiles.add(l));
+            tuiles.push({ icone: iconMarkup(icon), nom: iconName(icon), texte: lignes.join(' ') });
+        }
+        const lignes = textLines(panel).filter(l => !dansTuiles.has(l));
+        return { tuiles, lignes };
     }
 
     const textLines = (el) => (el.innerText || '').split('\n').map(l => l.trim()).filter(Boolean);
@@ -906,7 +933,7 @@
 
         const { root, tablist, tabs } = found;
         const labels = tabs.map(t => (t.innerText || t.textContent || '').trim() || 'Onglet');
-        const raw = new Array(tabs.length), htmls = new Array(tabs.length);
+        const raw = new Array(tabs.length), data = new Array(tabs.length);
         const order = tabs.length > 1 ? [...tabs.keys(), 0] : [0];
         let prevLines = null;
         for (let step = 0; step < order.length; step++) {
@@ -916,20 +943,24 @@
             if (prevLines) {
                 const prevSet = new Set(prevLines);
                 const panel = findPanelByLines(root, tablist, lines.filter(l => !prevSet.has(l))) || findTabPanel(root, tablist);
-                if (panel) htmls[i] = cloneGameHtml(panel);
+                if (panel) data[i] = extractPanel(panel);
             }
             if (raw[i] === undefined) raw[i] = lines;
             prevLines = lines;
         }
         if (tabs.length === 1) {
             const panel = findTabPanel(root, tablist);
-            if (panel) htmls[0] = cloneGameHtml(panel);
+            if (panel) data[0] = extractPanel(panel);
         }
 
         // Les lignes présentes dans tous les onglets (en-tête, noms des onglets) ne sont pas du contenu
         const common = raw.length > 1 ? new Set(raw[0].filter(l => raw.every(r => r.includes(l)))) : new Set();
         labels.forEach(l => common.add(l));
-        return { root, sections: raw.map((lignes, i) => ({ titre: labels[i], html: htmls[i] || '', lignes: lignes.filter(l => !common.has(l)) })) };
+        return { root, sections: raw.map((lignes, i) => ({
+            titre: labels[i],
+            tuiles: data[i] ? data[i].tuiles : [],
+            lignes: (data[i] ? data[i].lignes : lignes).filter(l => !common.has(l))
+        })) };
     }
 
     async function analyzeProfile(username) {
