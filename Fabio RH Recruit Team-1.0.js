@@ -620,7 +620,9 @@
         const sections = [{ titre: 'Résumé', html: resume }].concat(
             ((p.profil && p.profil.sections) || []).map(s => ({
                 titre: s.titre,
-                html: s.lignes.length
+                html: s.html
+                    ? `<div class="mwi-r-game">${s.html}</div>`
+                    : s.lignes.length
                     ? `<ul class="mwi-r-plines">${s.lignes.map(l => `<li>${esc(l)}</li>`).join('')}</ul>`
                     : '<p class="mwi-r-pempty">Rien dans cet onglet.</p>'
             })));
@@ -818,9 +820,29 @@
             const tl = Array.from(el.querySelectorAll('[role="tablist"]')).find(t =>
                 !t.closest('#mwi-tracker-modal') && !t.closest('[class*="Chat_"]')
                 && !t.querySelector('[data-mention-channel]'));
-            if (tl) return { root: el, tabs: Array.from(tl.querySelectorAll('[role="tab"]')) };
+            if (tl) return { root: el, tablist: tl, tabs: Array.from(tl.querySelectorAll('[role="tab"]')) };
         }
         return null;
+    }
+
+    // Contenu de l'onglet affiché : tabpanel MUI, sinon le bloc qui suit la barre d'onglets
+    function findTabPanel(root, tablist) {
+        const panel = Array.from(root.querySelectorAll('[role="tabpanel"]')).find(p => !p.hidden && p.offsetParent !== null);
+        if (panel) return panel;
+        const bar = tablist.closest('[class*="MuiTabs-root"]') || tablist;
+        return bar.nextElementSibling;
+    }
+
+    // Copie du HTML du jeu (icônes comprises) sans scripts, gestionnaires ni id en double
+    function cloneGameHtml(el) {
+        const clone = el.cloneNode(true);
+        clone.querySelectorAll('script, iframe, input, textarea').forEach(n => n.remove());
+        [clone, ...clone.querySelectorAll('*')].forEach(n => {
+            for (const a of Array.from(n.attributes)) {
+                if (/^on/i.test(a.name) || a.name === 'id' || a.name === 'tabindex') n.removeAttribute(a.name);
+            }
+        });
+        return clone.innerHTML;
     }
 
     const textLines = (el) => (el.innerText || '').split('\n').map(l => l.trim()).filter(Boolean);
@@ -830,7 +852,8 @@
         const found = findProfileTabs(profileEl);
         if (!found || found.tabs.length === 0) return { root: profileEl, sections: [{ titre: 'Profil', lignes: textLines(profileEl) }] };
 
-        const { root, tabs } = found;
+        const { root, tablist, tabs } = found;
+        const htmls = [];
         const labels = tabs.map(t => (t.innerText || t.textContent || '').trim() || 'Onglet');
         const raw = [];
         let previous = root.innerText;
@@ -845,13 +868,15 @@
             }
             previous = root.innerText;
             raw.push(textLines(root));
+            const panel = findTabPanel(root, tablist);
+            htmls.push(panel ? cloneGameHtml(panel) : '');
         }
         if (tabs[0].getAttribute('aria-selected') !== 'true') tabs[0].click();
 
         // Les lignes présentes dans tous les onglets (en-tête, noms des onglets) ne sont pas du contenu
         const common = raw.length > 1 ? new Set(raw[0].filter(l => raw.every(r => r.includes(l)))) : new Set();
         labels.forEach(l => common.add(l));
-        return { root, sections: raw.map((lignes, i) => ({ titre: labels[i], lignes: lignes.filter(l => !common.has(l)) })) };
+        return { root, sections: raw.map((lignes, i) => ({ titre: labels[i], html: htmls[i], lignes: lignes.filter(l => !common.has(l)) })) };
     }
 
     async function analyzeProfile(username) {

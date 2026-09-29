@@ -209,6 +209,9 @@
 .mwi-r-pstat.pending { color: var(--r-muted); }
 .mwi-r-plines { list-style: none; margin: 0; padding: 0; columns: 220px; column-gap: 20px; font-size: 12px; }
 .mwi-r-plines li { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,.04); break-inside: avoid; }
+.mwi-r-game { color: var(--r-text); font-size: 13px; }
+.mwi-r-game svg { max-width: 100%; }
+.mwi-r-ptab:focus { outline: none; }
 .mwi-r-pempty { margin: 10px 0 0; font-style: italic; color: var(--r-muted); font-size: 12px; }
 
 .mwi-r-empty { padding: 18px 8px; text-align: center; font-style: italic; color: var(--r-muted); background: var(--r-panel); border: 1px dashed var(--r-border); border-radius: 6px; }
