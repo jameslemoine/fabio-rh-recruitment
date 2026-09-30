@@ -180,6 +180,10 @@
 #mwi-tracker-modal[data-view="profile"] .mwi-r-toolbar,
 #mwi-tracker-modal[data-view="profile"] .mwi-r-chans-head,
 #mwi-tracker-modal[data-view="profile"] .mwi-r-chans { display: none; }
+#mwi-tracker-modal[data-view="guilds"] .mwi-r-list,
+#mwi-tracker-modal[data-view="guilds"] .mwi-r-toolbar,
+#mwi-tracker-modal[data-view="guilds"] .mwi-r-chans-head,
+#mwi-tracker-modal[data-view="guilds"] .mwi-r-chans { display: none; }
 .mwi-r-phead { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--r-border); }
 .mwi-r-pname { flex: 1; min-width: 0; font-size: 17px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mwi-r-pview .mwi-r-profile { visibility: visible; }
@@ -312,6 +316,44 @@
     .mwi-r-psec .mwi-r-tico, .mwi-r-psec .mwi-r-tico svg, .mwi-r-psec .mwi-r-tico img { width: calc(var(--tile) - 18px); height: calc(var(--tile) - 18px); }
     .mwi-r-psec .mwi-r-tt { font-size: 12px; }
 }
+
+/* Comparaison des guildes */
+.mwi-r-gview { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 8px; }
+#mwi-tracker-modal[data-view="guilds"] .mwi-r-gview { display: flex; }
+.mwi-r-gcount { margin-left: 8px; font-size: 12px; font-weight: 400; color: var(--r-muted); }
+.mwi-r-gbody { flex: 1; min-height: 140px; max-height: 360px; overflow: auto; padding-right: 4px; }
+#mwi-tracker-modal[data-mode="max"] .mwi-r-gbody,
+#mwi-tracker-modal[data-sized="1"] .mwi-r-gbody { max-height: none; }
+.mwi-r-gbody::-webkit-scrollbar { width: 8px; height: 8px; }
+.mwi-r-gbody::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }
+.mwi-r-gcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.mwi-r-gcard {
+    padding: 10px 12px; cursor: pointer;
+    background: linear-gradient(180deg, var(--r-panel-2), var(--r-panel) 46px);
+    border: 1px solid var(--r-border); border-top: 2px solid var(--r-border); border-radius: 8px;
+    transition: border-color .15s;
+}
+.mwi-r-gcard:hover, .mwi-r-gcard.active { border-color: var(--r-accent); }
+.mwi-r-gcard h4 { margin: 0 0 4px; font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--r-gold); }
+.mwi-r-grank { font-size: 24px; font-weight: 700; line-height: 1.2; color: var(--r-text); }
+.mwi-r-gcard .mwi-r-rows { grid-template-columns: 1fr; font-size: 12px; }
+.mwi-r-gverdict { margin: 0 0 6px; padding: 5px 10px; font-size: 12px; font-weight: 700; color: var(--r-muted); background: var(--r-bg); border-left: 3px solid var(--r-muted); border-radius: 4px; }
+.mwi-r-gverdict.mieux { color: var(--r-err); border-left-color: var(--r-err); }
+.mwi-r-gverdict.moins { color: var(--r-ok); border-left-color: var(--r-ok); }
+.mwi-r-gverdict.egal { color: var(--r-warn); border-left-color: var(--r-warn); }
+.mwi-r-gtable { width: 100%; border-collapse: collapse; font-size: 12px; }
+.mwi-r-gtable th {
+    position: sticky; top: 0; z-index: 1; padding: 6px 8px; text-align: left; white-space: nowrap;
+    color: var(--r-muted); background: var(--r-panel-2); border-bottom: 2px solid var(--r-border);
+}
+.mwi-r-gtable th[data-action] { cursor: pointer; }
+.mwi-r-gtable th[data-action]:hover { color: var(--r-text); }
+.mwi-r-gtable th.active { color: var(--r-accent); border-bottom-color: var(--r-accent); }
+.mwi-r-gtable td { padding: 5px 8px; white-space: nowrap; border-bottom: 1px solid rgba(255,255,255,.05); }
+.mwi-r-gtable .n { text-align: right; font-variant-numeric: tabular-nums; }
+.mwi-r-gtable small { margin-left: 4px; color: var(--r-muted); }
+.mwi-r-gtable tbody tr:hover { background: var(--r-panel); }
+.mwi-r-gtable tr.moi td { font-weight: 700; color: var(--r-gold); background: var(--r-panel-2); border-bottom: 1px solid var(--r-accent); }
 
 .mwi-r-empty { padding: 18px 8px; text-align: center; font-style: italic; color: var(--r-muted); background: var(--r-panel); border: 1px dashed var(--r-border); border-radius: 6px; }
 
