@@ -1,7 +1,7 @@
 // Fichier généré par tools/build-console.js - ne pas modifier à la main.
 // Coller tout le contenu dans la console du jeu (F12) pour tester sans Tampermonkey.
-// Version : 14e5579 - Leaderboard : lecture du panneau de classement affiché, pas du premier trouvé
-console.log('[Fabio RH] console-test :', "14e5579 - Leaderboard : lecture du panneau de classement affiché, pas du premier trouvé");
+// Version : 0e40b3b - Canaux à scanner : Leaderboard et Guildes cochables comme les canaux du chat
+console.log('[Fabio RH] console-test :', "0e40b3b - Canaux à scanner : Leaderboard et Guildes cochables comme les canaux du chat");
 (function() {
     'use strict';
 
@@ -98,6 +98,10 @@ console.log('[Fabio RH] console-test :', "14e5579 - Leaderboard : lecture du pan
     const tabKey = (tab) => tab.getAttribute('data-mention-channel') || tabLabel(tab);
     const isIronTab = (tab) => /ironcow/i.test(tabKey(tab) + ' ' + tabLabel(tab));
 
+    // Sources hors chat, cochables comme les canaux (clés mémorisées dans excludedChannels)
+    const SOURCE_LEADERBOARD = 'fabio:leaderboard', SOURCE_GUILDES = 'fabio:guildes';
+    const sourceActive = (key) => !(loadUI().excludedChannels || []).includes(key);
+
     // On mémorise les canaux exclus (et non les inclus) pour qu'un nouveau canal soit scanné par défaut
     function getSelectedTabs() {
         const excluded = loadUI().excludedChannels || [];
@@ -108,18 +112,16 @@ console.log('[Fabio RH] console-test :', "14e5579 - Leaderboard : lecture du pan
         const box = document.getElementById('mwi-channels');
         if (!box) return;
         const tabs = getChatTabs();
-        if (tabs.length === 0) {
-            box.innerHTML = '<span class="mwi-r-chan-empty">Aucun canal détecté (chat pas encore chargé ?)</span>';
-            return;
-        }
         const excluded = loadUI().excludedChannels || [];
-        box.innerHTML = tabs.map(t => {
-            const key = tabKey(t);
-            return `<label class="mwi-r-chan${isIronTab(t) ? ' iron' : ''}">
+        const chan = (key, label, cls = '') => `<label class="mwi-r-chan${cls}">
                 <input type="checkbox" data-key="${esc(key)}" ${excluded.includes(key) ? '' : 'checked'}>
-                ${isIronTab(t) ? '🐄 ' : ''}${esc(tabLabel(t))}
+                ${label}
             </label>`;
-        }).join('');
+        box.innerHTML = (tabs.length
+            ? tabs.map(t => chan(tabKey(t), `${isIronTab(t) ? '🐄 ' : ''}${esc(tabLabel(t))}`, isIronTab(t) ? ' iron' : '')).join('')
+            : '<span class="mwi-r-chan-empty">Aucun canal détecté (chat pas encore chargé ?)</span>')
+            // Sources hors chat, parcourues après les canaux
+            + chan(SOURCE_LEADERBOARD, '🏆 Leaderboard') + chan(SOURCE_GUILDES, '🛡️ Guildes');
         box.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.addEventListener('change', () => {
             const keys = Array.from(box.querySelectorAll('input[type="checkbox"]'))
                 .filter(c => !c.checked).map(c => c.dataset.key);
@@ -243,7 +245,8 @@ console.log('[Fabio RH] console-test :', "14e5579 - Leaderboard : lecture du pan
         const scanBtn = document.getElementById('mwi-btn-scan');
         const processBtn = document.getElementById('mwi-btn-process');
 
-        if (allTabs.length === 0) {
+        const avecLb = sourceActive(SOURCE_LEADERBOARD) || sourceActive(SOURCE_GUILDES);
+        if (allTabs.length === 0 && !avecLb) {
             setStatus('Aucun onglet de chat trouvé.', 'warn');
             return;
         }
@@ -276,17 +279,19 @@ console.log('[Fabio RH] console-test :', "14e5579 - Leaderboard : lecture du pan
             if (activeTab) activeTab.click();
             await sleep(50);
 
-            // Puis le leaderboard : tous les joueurs classés dans chaque métier et skill de combat
-            const spamWatch = startSpamWatch();
-            try {
-                const lb = await scanLeaderboard(scanLog);
-                countNew += lb.countNew;
-                leaderboard = lb.classements;
-                guildCats = lb.guildCats || 0;
-            } catch (e) {
-                log('Erreur pendant le scan du leaderboard :', e);
-            } finally {
-                spamWatch.disconnect();
+            // Puis le leaderboard (joueurs classés et/ou classements de guildes, selon les cases cochées)
+            if (avecLb) {
+                const spamWatch = startSpamWatch();
+                try {
+                    const lb = await scanLeaderboard(scanLog);
+                    countNew += lb.countNew;
+                    leaderboard = lb.classements;
+                    guildCats = lb.guildCats || 0;
+                } catch (e) {
+                    log('Erreur pendant le scan du leaderboard :', e);
+                } finally {
+                    spamWatch.disconnect();
+                }
             }
         } finally {
             isScanning = false;
@@ -297,7 +302,7 @@ console.log('[Fabio RH] console-test :', "14e5579 - Leaderboard : lecture du pan
         log(`${countNew} nouveaux joueurs mis en file d'attente (${recrues.size} au total).`);
         console.table(scanLog.filter(e => e.resultat.startsWith('ignoré')));
         setStatus(`Scan terminé (${tabs.length} onglets de chat, ${leaderboard} classements, ${guildes.size} guildes) : ${countNew} nouveau(x) joueur(s).`,
-            leaderboard && guildCats ? 'ok' : 'warn');
+            (leaderboard || !sourceActive(SOURCE_LEADERBOARD)) && (guildCats || !sourceActive(SOURCE_GUILDES)) ? 'ok' : 'warn');
         updateModalUI();
         if (document.getElementById('mwi-tracker-modal').dataset.view === 'guilds') renderGuildView();
     };
@@ -375,7 +380,8 @@ console.log('[Fabio RH] console-test :', "14e5579 - Leaderboard : lecture du pan
         log('Leaderboard : page trouvée', root.className);
 
         // Onglets du jeu selon le filtre de mode (jamais l'onglet des guildes)
-        const modes = currentMode === 'standard' ? ['Standard'] : currentMode === 'ironcow' ? ['Ironcow'] : ['Standard', 'Ironcow'];
+        const modes = !sourceActive(SOURCE_LEADERBOARD) ? []
+            : currentMode === 'standard' ? ['Standard'] : currentMode === 'ironcow' ? ['Ironcow'] : ['Standard', 'Ironcow'];
         for (const mode of modes) {
             const tab = tabEl(root, mode);
             if (!tab) {
@@ -414,7 +420,7 @@ console.log('[Fabio RH] console-test :', "14e5579 - Leaderboard : lecture du pan
         }
         // Onglet des guildes : tous les classements de guildes, pour la comparaison
         let guildCats = 0;
-        try { guildCats = await scanGuilds(root); } catch (e) { log('Erreur pendant la lecture des guildes :', e); }
+        if (sourceActive(SOURCE_GUILDES)) try { guildCats = await scanGuilds(root); } catch (e) { log('Erreur pendant la lecture des guildes :', e); }
 
         // Retour à la page du jeu affichée avant le scan
         if (pageAvant && pageAvant.isConnected && !pageAvant.querySelector('svg[aria-label="navigationBar.leaderboard"]')) pageAvant.click();
