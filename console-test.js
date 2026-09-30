@@ -1,5 +1,7 @@
 // Fichier généré par tools/build-console.js - ne pas modifier à la main.
 // Coller tout le contenu dans la console du jeu (F12) pour tester sans Tampermonkey.
+// Version : 1a6fb08 - Fiche joueur : cases de Skills et Equipment réparties sur toute la largeur en grande modale
+console.log('[Fabio RH] console-test :', "1a6fb08 - Fiche joueur : cases de Skills et Equipment réparties sur toute la largeur en grande modale");
 (function() {
     'use strict';
 

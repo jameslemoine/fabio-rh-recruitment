@@ -20,8 +20,9 @@ Dépôt : https://github.com/jameslemoine/fabio-rh-recruitment (compte GitHub `j
 ## Après chaque modification (sur `dev`)
 
 1. `node --check "Fabio RH Recruit Team-1.0.js"`
-2. `node tools/build-console.js` puis `node --check console-test.js`
-3. Commit (script + CSS + `console-test.js`) et push sur `origin dev`.
+2. Commit du script et du CSS.
+3. `node tools/build-console.js` puis `node --check console-test.js` : l'en-tête de `console-test.js` (et un `console.log` au lancement) reprend le hash et le titre de ce commit, pour savoir quelle version on teste.
+4. Commit de `console-test.js` seul, puis push sur `origin dev`.
 
 Ne jamais modifier `console-test.js` à la main.
 
