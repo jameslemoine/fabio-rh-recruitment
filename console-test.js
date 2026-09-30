@@ -1,7 +1,7 @@
 // Fichier généré par tools/build-console.js - ne pas modifier à la main.
 // Coller tout le contenu dans la console du jeu (F12) pour tester sans Tampermonkey.
-// Version : 1a6fb08 - Fiche joueur : cases de Skills et Equipment réparties sur toute la largeur en grande modale
-console.log('[Fabio RH] console-test :', "1a6fb08 - Fiche joueur : cases de Skills et Equipment réparties sur toute la largeur en grande modale");
+// Version : 9d743d4 - Fiche joueur : lit les données brutes du profil (message profile_shared), ajoute le build de combat
+console.log('[Fabio RH] console-test :', "9d743d4 - Fiche joueur : lit les données brutes du profil (message profile_shared), ajoute le build de combat");
 (function() {
     'use strict';
 
@@ -32,6 +32,40 @@ console.log('[Fabio RH] console-test :', "1a6fb08 - Fiche joueur : cases de Skil
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     const log = (...a) => console.log('[Radar]', ...a);
     const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    // ---------------------------------------------------------------
+    // 0. Données brutes des profils
+    // ---------------------------------------------------------------
+    // À chaque /profile, le serveur envoie au jeu un message "profile_shared" avec toutes les données du joueur
+    // (skills, équipement, capacités, consommables et déclencheurs de combat, maison, sanctuaires...).
+    // On l'écoute au passage, sans rien envoyer : plus fiable et plus complet que la lecture de l'écran.
+    const profilsBruts = new Map(); // pseudo -> profil
+    const page = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+    const toPage = (fn) => typeof exportFunction === 'function' ? exportFunction(fn, page) : fn;
+    try {
+        page.__fabioOnProfile = toPage((json) => {
+            try {
+                const msg = JSON.parse(json);
+                const nom = msg.type === 'profile_shared' && msg.profile && msg.profile.sharableCharacter && msg.profile.sharableCharacter.name;
+                if (nom) profilsBruts.set(nom, msg.profile);
+            } catch (e) { }
+        });
+        // Un seul crochet par page, même si le script est relancé (console) : il appelle le dernier __fabioOnProfile
+        if (!page.__fabioHook) {
+            const desc = Object.getOwnPropertyDescriptor(page.MessageEvent.prototype, 'data');
+            const get = toPage(function() {
+                const d = desc.get.call(this);
+                if (typeof d === 'string' && d.includes('"profile_shared"')) {
+                    try { page.__fabioOnProfile(d); } catch (e) { }
+                }
+                return d;
+            });
+            Object.defineProperty(page.MessageEvent.prototype, 'data', { configurable: true, enumerable: desc.enumerable, get });
+            page.__fabioHook = true;
+        }
+    } catch (e) {
+        log('Écoute des profils impossible, lecture à l\'écran uniquement :', e);
+    }
 
     // ---------------------------------------------------------------
     // 1. Scanner le chat (Cible précisément les onglets du jeu via data-mention-channel)
@@ -313,7 +347,7 @@ console.log('[Fabio RH] console-test :', "1a6fb08 - Fiche joueur : cases de Skil
     // ---------------------------------------------------------------
     // 3. Interface & Styles
     // ---------------------------------------------------------------
-    const CSS = "#mwi-tracker-modal, #mwi-radar-launcher {\n    --r-bg: #0c0a0b;\n    --r-panel: #171113;\n    --r-panel-2: #24161a;\n    --r-border: #4a1f25;\n    --r-accent: #e0343c;\n    --r-accent-strong: #b3151d;\n    --r-gold: #e8b64c;\n    --r-text: #f4ece6;\n    --r-muted: #a08a8c;\n    --r-ok: #4ecb8d;\n    --r-warn: #f0a950;\n    --r-err: #ff5a5f;\n    font-family: \"Roboto\", \"Segoe UI\", sans-serif;\n    box-sizing: border-box;\n}\n#mwi-tracker-modal *, #mwi-radar-launcher * { box-sizing: border-box; }\n\n#mwi-tracker-modal {\n    position: fixed; top: 60px; right: 12px; z-index: 99999;\n    width: 340px; max-width: calc(100vw - 16px);\n    display: flex; flex-direction: column;\n    background: var(--r-bg); color: var(--r-text);\n    border: 1px solid var(--r-border); border-radius: 10px;\n    box-shadow: 0 8px 24px rgba(0,0,0,.55);\n    overflow: hidden; font-size: 13px;\n}\n#mwi-tracker-modal[data-mode=\"max\"] {\n    top: 5vh !important; left: 5vw !important; right: auto !important;\n    width: 90vw !important; height: 88vh !important;\n}\n#mwi-tracker-modal[data-mode=\"min\"] { height: auto !important; }\n#mwi-tracker-modal[data-sized=\"1\"] .mwi-r-list { max-height: none; }\n#mwi-tracker-modal[data-mode=\"min\"] .mwi-r-body { display: none; }\n#mwi-tracker-modal[data-mode=\"min\"] { width: 260px; }\n\n.mwi-r-head {\n    display: flex; align-items: center; gap: 8px;\n    padding: 8px 10px; cursor: move; user-select: none;\n    background: linear-gradient(180deg, var(--r-panel-2), var(--r-panel));\n    border-bottom: 2px solid var(--r-accent);\n}\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-head { cursor: default; }\n.mwi-r-title { flex: 1; font-size: 14px; font-weight: 700; color: var(--r-accent); letter-spacing: .3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n.mwi-r-logo { width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; display: block; }\n#mwi-radar-launcher { padding: 0; overflow: hidden; }\n#mwi-radar-launcher .mwi-r-logo { width: 100%; height: 100%; }\n.mwi-r-player { cursor: pointer; }\n.mwi-r-player:hover { text-decoration: underline; }\n.mwi-r-right { display: flex; align-items: center; gap: 6px; }\n.mwi-r-profile {\n    visibility: hidden; font-weight: 700;\n    padding: 3px 12px; font-size: 12px; letter-spacing: .3px; cursor: pointer;\n    color: #fff; background: var(--r-accent);\n    border: 1px solid var(--r-accent); border-radius: 4px;\n    box-shadow: 0 0 8px rgba(224, 52, 60, .45);\n    transition: background .15s, box-shadow .15s, transform .1s;\n}\n.mwi-r-profile:hover { text-decoration: none; background: var(--r-accent-strong); box-shadow: 0 0 12px rgba(224, 52, 60, .75); transform: translateY(-1px); }\n.mwi-r-badge {\n    min-width: 22px; padding: 1px 7px; text-align: center;\n    font-size: 12px; font-weight: 700; color: var(--r-bg);\n    background: var(--r-ok); border-radius: 10px;\n}\n.mwi-r-ctrl { display: flex; gap: 4px; }\n.mwi-r-icon {\n    width: 24px; height: 24px; padding: 0; line-height: 1;\n    display: flex; align-items: center; justify-content: center;\n    color: var(--r-text); background: transparent;\n    border: 1px solid var(--r-border); border-radius: 5px;\n    cursor: pointer; font-size: 14px; transition: background .15s, border-color .15s;\n}\n.mwi-r-icon:hover { background: var(--r-panel-2); border-color: var(--r-accent); }\n.mwi-r-icon.close:hover { background: var(--r-err); border-color: var(--r-err); }\n\n.mwi-r-body { display: flex; flex-direction: column; gap: 10px; padding: 10px; flex: 1; min-height: 0; }\n\n.mwi-r-toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }\n\n.mwi-r-chans-head { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--r-muted); }\n.mwi-r-chans { display: flex; flex-wrap: wrap; gap: 4px; }\n.mwi-r-chan {\n    display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;\n    font-size: 11px; cursor: pointer; user-select: none;\n    background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 10px;\n}\n.mwi-r-chan:has(input:checked) { border-color: var(--r-accent); color: var(--r-text); }\n.mwi-r-chan:not(:has(input:checked)) { color: var(--r-muted); opacity: .7; }\n.mwi-r-chan.iron:has(input:checked) { border-color: var(--r-warn); }\n.mwi-r-chan input { margin: 0; accent-color: var(--r-accent); }\n.mwi-r-chan-empty { font-size: 11px; font-style: italic; color: var(--r-muted); }\n.mwi-r-iron { font-size: 11px; font-weight: 700; color: var(--r-warn); margin-left: 4px; }\n.mwi-r-select {\n    flex: 0 1 150px; padding: 5px 8px; color: var(--r-text);\n    background: var(--r-panel); border: 1px solid var(--r-border);\n    border-radius: 5px; font-size: 12px; outline: none;\n}\n.mwi-r-select:focus { border-color: var(--r-accent); }\n\n.mwi-r-btn {\n    padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer;\n    color: var(--r-text); background: var(--r-panel-2);\n    border: 1px solid var(--r-border); border-radius: 5px;\n    transition: background .15s, border-color .15s, opacity .15s;\n}\n.mwi-r-btn:hover:not(:disabled) { border-color: var(--r-accent); background: #331a1f; }\n.mwi-r-btn.primary { color: #fff; background: var(--r-accent); border-color: var(--r-accent); }\n.mwi-r-btn.primary:hover:not(:disabled) { background: var(--r-accent-strong); }\n.mwi-r-btn:disabled { opacity: .55; cursor: not-allowed; }\n\n.mwi-r-list {\n    overflow-x: hidden; padding-right: 2px;\n    flex: 1; min-height: 120px; max-height: 320px; overflow-y: auto;\n    list-style: none; margin: 0; padding: 0;\n    display: grid; grid-template-columns: 1fr; gap: 6px; align-content: start;\n}\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-list {\n    max-height: none;\n    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));\n}\n.mwi-r-list::-webkit-scrollbar { width: 8px; }\n.mwi-r-list::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }\n\n.mwi-r-card {\n    padding: 8px 10px; background: var(--r-panel);\n    border: 1px solid var(--r-border); border-left: 3px solid var(--r-ok);\n    border-radius: 6px;\n}\n.mwi-r-card.guild { border-left-color: var(--r-gold); }\n.mwi-r-card.fail { border-left-color: var(--r-err); }\n.mwi-r-card.pending { border-left-color: var(--r-muted); }\n.mwi-r-name { font-weight: 700; font-size: 14px; color: var(--r-text); display: flex; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; }\n.mwi-r-who { display: flex; align-items: center; min-width: 0; overflow: hidden; }\n.mwi-r-who .mwi-r-player { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.mwi-r-iron { flex-shrink: 0; }\n.mwi-r-right { flex-shrink: 0; }\n.mwi-r-card { min-width: 0; transition: border-color .15s, background .15s; }\n.mwi-r-card:hover { background: var(--r-panel-2); border-color: var(--r-accent); }\n.mwi-r-tag { font-size: 11px; font-weight: 700; color: var(--r-muted); white-space: nowrap; }\n.mwi-r-card:not(.guild):not(.fail):not(.pending) .mwi-r-tag { color: var(--r-ok); }\n.mwi-r-card.fail .mwi-r-tag { color: var(--r-err); }\n.mwi-r-card.guild .mwi-r-tag { color: var(--r-gold); }\n.mwi-r-stats { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 5px; font-size: 12px; color: var(--r-muted); }\n.mwi-r-stats b { color: var(--r-text); font-weight: 600; }\n.mwi-r-sizes { display: flex; gap: 2px; padding: 2px; background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px; }\n.mwi-r-sizes .mwi-r-icon { border-color: transparent; color: var(--r-muted); }\n.mwi-r-sizes .mwi-r-icon.active { color: var(--r-accent); background: var(--r-panel-2); border-color: var(--r-accent); }\n.mwi-r-details { display: none; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 6px 0 0; font-size: 12px; }\n.mwi-r-details dt { color: var(--r-muted); }\n.mwi-r-details dd { margin: 0; color: var(--r-text); font-weight: 600; }\n\n/* Taille des cases : grandes = toutes les infos en liste, moyennes = bouton visible, petites = bouton au survol */\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-card { padding: 10px 12px; }\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-name { font-size: 15px; }\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-stats,\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-tag { display: none; }\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-details { display: grid; }\n#mwi-tracker-modal[data-size=\"large\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-profile,\n#mwi-tracker-modal[data-size=\"medium\"] .mwi-r-profile { visibility: visible; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card { padding: 4px 8px; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-name { font-size: 13px; align-items: center; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-stats { display: none; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-list { gap: 3px; }\n#mwi-tracker-modal[data-size=\"small\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card:hover .mwi-r-profile { visibility: visible; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card { border-left-width: 1px; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-tag { font-size: 0; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-tag::before {\n    content: ''; display: block; width: 8px; height: 8px; border-radius: 50%; background: currentColor;\n}\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card.pending .mwi-r-tag { color: var(--r-muted); }\n#mwi-tracker-modal[data-size=\"medium\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }\n.mwi-r-card[data-player] { cursor: pointer; }\n\n/* Fiche joueur */\n.mwi-r-pview { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 8px; }\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-pview { display: flex; }\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-list,\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-toolbar,\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-chans-head,\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-chans { display: none; }\n.mwi-r-phead { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--r-border); }\n.mwi-r-pname { flex: 1; min-width: 0; font-size: 17px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.mwi-r-pview .mwi-r-profile { visibility: visible; }\n.mwi-r-ptabs { display: flex; flex-wrap: wrap; gap: 4px; }\n.mwi-r-ptab {\n    padding: 4px 10px; font-size: 12px; font-weight: 700; cursor: pointer;\n    color: var(--r-muted); background: var(--r-panel);\n    border: 1px solid var(--r-border); border-radius: 14px;\n    transition: color .15s, border-color .15s, background .15s;\n}\n.mwi-r-ptab:hover { color: var(--r-text); border-color: var(--r-accent); }\n.mwi-r-ptab.active { color: #fff; background: var(--r-accent); border-color: var(--r-accent); }\n.mwi-r-pbody {\n    flex: 1; min-height: 140px; max-height: 360px; overflow-y: auto; padding: 10px 12px;\n    background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px;\n}\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-pbody,\n#mwi-tracker-modal[data-sized=\"1\"] .mwi-r-pbody { max-height: none; }\n.mwi-r-pbody::-webkit-scrollbar { width: 8px; }\n.mwi-r-pbody::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }\n.mwi-r-pgrid { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: 13px; }\n.mwi-r-pgrid dt { color: var(--r-muted); }\n.mwi-r-pgrid dd { margin: 0; font-weight: 700; }\n.mwi-r-pstat.free { color: var(--r-ok); }\n.mwi-r-pstat.guild { color: var(--r-gold); }\n.mwi-r-pstat.fail { color: var(--r-err); }\n.mwi-r-pstat.pending { color: var(--r-muted); }\n.mwi-r-plines { list-style: none; margin: 0; padding: 0; columns: 220px; column-gap: 20px; font-size: 12px; }\n.mwi-r-plines li { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,.04); break-inside: avoid; }\n.mwi-r-ptab:focus { outline: none; }\n.mwi-r-rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 0 20px; margin: 0; font-size: 13px; }\n.mwi-r-row {\n    display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px;\n    padding: 6px 2px; border-bottom: 1px solid rgba(255,255,255,.06);\n}\n.mwi-r-row dt { color: var(--r-muted); }\n.mwi-r-row dd { margin: 0; font-weight: 700; color: var(--r-text); text-align: right; font-variant-numeric: tabular-nums; }\n.mwi-r-row.done dd { color: var(--r-ok); }\n.mwi-r-bar { flex-basis: 100%; height: 4px; background: var(--r-bg); border-radius: 2px; overflow: hidden; }\n.mwi-r-bar > div { height: 100%; background: var(--r-accent); border-radius: 2px; }\n.mwi-r-row.done .mwi-r-bar > div { background: var(--r-ok); }\n.mwi-r-solos { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 12px; }\n.mwi-r-solo-label { color: var(--r-muted); }\n.mwi-r-solo { padding: 2px 10px; font-weight: 700; color: var(--r-text); background: var(--r-bg); border: 1px solid var(--r-border); border-radius: 12px; }\n.mwi-r-solo-label ~ .mwi-r-solo { font-weight: 400; color: var(--r-muted); border-style: dashed; }\n/* Cases du profil : icône au centre, textes et badges dans les coins */\n.mwi-r-tiles {\n    --tile: 58px;\n    display: grid; grid-template-columns: repeat(auto-fill, var(--tile)); grid-auto-rows: var(--tile);\n    gap: 6px; margin-top: 10px; justify-content: start; overflow-x: auto; padding-bottom: 2px;\n}\n.mwi-r-tiles:first-child { margin-top: 0; }\n.mwi-r-tiles.placed { grid-template-columns: repeat(var(--cols), var(--tile)); }\n.mwi-r-tile {\n    position: relative; width: var(--tile); height: var(--tile);\n    display: flex; align-items: center; justify-content: center;\n    background: linear-gradient(160deg, var(--r-panel-2), var(--r-bg));\n    border: 1px solid var(--r-border); border-radius: 6px;\n    transition: border-color .15s, box-shadow .15s;\n}\n.mwi-r-tile:hover { border-color: var(--r-accent); box-shadow: 0 0 8px rgba(224, 52, 60, .35); }\n.mwi-r-tico { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; }\n.mwi-r-tico svg, .mwi-r-tico img { width: 40px; height: 40px; object-fit: contain; }\n.mwi-r-tt {\n    position: absolute; max-width: calc(100% - 4px); overflow: hidden; white-space: nowrap;\n    font-size: 11px; font-weight: 700; line-height: 1; color: var(--r-text);\n    text-shadow: 0 0 3px #000, 0 0 3px #000;\n}\n.mwi-r-tt.tl { top: 3px; left: 3px; }\n.mwi-r-tt.tc { top: 3px; left: 50%; transform: translateX(-50%); }\n.mwi-r-tt.tr { top: 3px; right: 3px; }\n.mwi-r-tt.bl { bottom: 3px; left: 3px; }\n.mwi-r-tt.bc { bottom: 3px; left: 50%; transform: translateX(-50%); }\n.mwi-r-tt.br { bottom: 3px; right: 3px; }\n.mwi-r-tt.plus { color: var(--r-warn); }\n.mwi-r-tt.num { color: var(--r-ok); }\n.mwi-r-tb { position: absolute; width: 16px; height: 16px; }\n.mwi-r-tb svg, .mwi-r-tb img { width: 16px; height: 16px; }\n.mwi-r-tb.tl { top: 2px; left: 2px; }\n.mwi-r-tb.tr { top: 2px; right: 2px; }\n.mwi-r-tb.bl { bottom: 2px; left: 2px; }\n.mwi-r-tb.br { bottom: 2px; right: 2px; }\n.mwi-r-tb.tc { top: 2px; left: calc(50% - 8px); }\n.mwi-r-tb.bc { bottom: 2px; left: calc(50% - 8px); }\n.mwi-r-pempty { margin: 10px 0 0; font-style: italic; color: var(--r-muted); font-size: 12px; }\n\n/* Petite fenêtre : un onglet à la fois. Modale large : toutes les sections répertoriées en colonnes, sans onglets */\n.mwi-r-pview { container-type: inline-size; container-name: mwi-pview; }\n.mwi-r-psec:not(.active) { display: none; }\n.mwi-r-psec-title { display: none; }\n@container mwi-pview (min-width: 880px) {\n    .mwi-r-ptabs { display: none; }\n    .mwi-r-pbody { padding: 0 4px 0 0; background: none; border: 0; border-radius: 0; }\n    .mwi-r-psecs { columns: 420px; column-gap: 12px; }\n    .mwi-r-psec, .mwi-r-psec:not(.active) {\n        display: block; break-inside: avoid; margin: 0 0 12px; padding: 12px 14px 14px;\n        background: linear-gradient(180deg, var(--r-panel-2), var(--r-panel) 46px);\n        border: 1px solid var(--r-border); border-top: 2px solid var(--r-accent); border-radius: 8px;\n        box-shadow: 0 2px 10px rgba(0,0,0,.35);\n    }\n    .mwi-r-psec-title {\n        display: flex; align-items: center; gap: 8px; margin: 0 0 12px;\n        font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--r-gold);\n    }\n    .mwi-r-psec-title::after { content: ''; flex: 1; height: 1px; background: var(--r-border); }\n    .mwi-r-psec .mwi-r-rows { grid-template-columns: 1fr; }\n    .mwi-r-psec .mwi-r-tiles { justify-content: center; }\n}\n/* Très grande modale : trois colonnes indépendantes (Skills | Résumé, Overview | Equipment), le reste réparti en dessous */\n.mwi-r-pcol { display: contents; }\n@container mwi-pview (min-width: 1200px) {\n    .mwi-r-psecs {\n        columns: auto; display: grid; gap: 12px; align-items: start;\n        grid-template-columns: minmax(0, .8fr) minmax(0, 1fr) minmax(400px, 1.1fr);\n    }\n    .mwi-r-pcol { display: flex; flex-direction: column; gap: 12px; min-width: 0; }\n    .mwi-r-psec, .mwi-r-psec:not(.active) { margin: 0; min-width: 0; }\n    /* Cases plus grandes, réparties sur toute la largeur de la section */\n    .mwi-r-psec .mwi-r-tiles {\n        --tile: clamp(58px, 4cqw, 72px); gap: 12px 8px; margin-top: 12px;\n        grid-template-columns: repeat(auto-fill, minmax(calc(var(--tile) + 14px), 1fr));\n        justify-content: stretch; justify-items: center;\n    }\n    .mwi-r-psec .mwi-r-tiles.placed { grid-template-columns: repeat(var(--cols), minmax(var(--tile), 1fr)); }\n    .mwi-r-psec .mwi-r-tico, .mwi-r-psec .mwi-r-tico svg, .mwi-r-psec .mwi-r-tico img { width: calc(var(--tile) - 18px); height: calc(var(--tile) - 18px); }\n    .mwi-r-psec .mwi-r-tt { font-size: 12px; }\n}\n\n.mwi-r-empty { padding: 18px 8px; text-align: center; font-style: italic; color: var(--r-muted); background: var(--r-panel); border: 1px dashed var(--r-border); border-radius: 6px; }\n\n.mwi-r-progress { height: 4px; background: var(--r-panel); border-radius: 2px; overflow: hidden; display: none; }\n.mwi-r-progress > div { height: 100%; width: 0; background: var(--r-accent); transition: width .2s; }\n\n.mwi-r-actions { display: flex; gap: 8px; }\n.mwi-r-actions .mwi-r-btn { flex: 1; }\n\n.mwi-r-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 11px; color: var(--r-muted); }\n#mwi-status.ok { color: var(--r-ok); }\n#mwi-status.warn { color: var(--r-warn); }\n#mwi-status.err { color: var(--r-err); }\n\n#mwi-radar-launcher {\n    position: fixed; bottom: 16px; right: 16px; z-index: 99998; display: none;\n    width: 44px; height: 44px; align-items: center; justify-content: center;\n    font-size: 20px; cursor: pointer; color: var(--r-accent);\n    background: var(--r-panel); border: 1px solid var(--r-border);\n    border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,.5);\n}\n#mwi-radar-launcher:hover { border-color: var(--r-accent); background: var(--r-panel-2); }\n";
+    const CSS = "#mwi-tracker-modal, #mwi-radar-launcher {\n    --r-bg: #0c0a0b;\n    --r-panel: #171113;\n    --r-panel-2: #24161a;\n    --r-border: #4a1f25;\n    --r-accent: #e0343c;\n    --r-accent-strong: #b3151d;\n    --r-gold: #e8b64c;\n    --r-text: #f4ece6;\n    --r-muted: #a08a8c;\n    --r-ok: #4ecb8d;\n    --r-warn: #f0a950;\n    --r-err: #ff5a5f;\n    font-family: \"Roboto\", \"Segoe UI\", sans-serif;\n    box-sizing: border-box;\n}\n#mwi-tracker-modal *, #mwi-radar-launcher * { box-sizing: border-box; }\n\n#mwi-tracker-modal {\n    position: fixed; top: 60px; right: 12px; z-index: 99999;\n    width: 340px; max-width: calc(100vw - 16px);\n    display: flex; flex-direction: column;\n    background: var(--r-bg); color: var(--r-text);\n    border: 1px solid var(--r-border); border-radius: 10px;\n    box-shadow: 0 8px 24px rgba(0,0,0,.55);\n    overflow: hidden; font-size: 13px;\n}\n#mwi-tracker-modal[data-mode=\"max\"] {\n    top: 5vh !important; left: 5vw !important; right: auto !important;\n    width: 90vw !important; height: 88vh !important;\n}\n#mwi-tracker-modal[data-mode=\"min\"] { height: auto !important; }\n#mwi-tracker-modal[data-sized=\"1\"] .mwi-r-list { max-height: none; }\n#mwi-tracker-modal[data-mode=\"min\"] .mwi-r-body { display: none; }\n#mwi-tracker-modal[data-mode=\"min\"] { width: 260px; }\n\n.mwi-r-head {\n    display: flex; align-items: center; gap: 8px;\n    padding: 8px 10px; cursor: move; user-select: none;\n    background: linear-gradient(180deg, var(--r-panel-2), var(--r-panel));\n    border-bottom: 2px solid var(--r-accent);\n}\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-head { cursor: default; }\n.mwi-r-title { flex: 1; font-size: 14px; font-weight: 700; color: var(--r-accent); letter-spacing: .3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n.mwi-r-logo { width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; display: block; }\n#mwi-radar-launcher { padding: 0; overflow: hidden; }\n#mwi-radar-launcher .mwi-r-logo { width: 100%; height: 100%; }\n.mwi-r-player { cursor: pointer; }\n.mwi-r-player:hover { text-decoration: underline; }\n.mwi-r-right { display: flex; align-items: center; gap: 6px; }\n.mwi-r-profile {\n    visibility: hidden; font-weight: 700;\n    padding: 3px 12px; font-size: 12px; letter-spacing: .3px; cursor: pointer;\n    color: #fff; background: var(--r-accent);\n    border: 1px solid var(--r-accent); border-radius: 4px;\n    box-shadow: 0 0 8px rgba(224, 52, 60, .45);\n    transition: background .15s, box-shadow .15s, transform .1s;\n}\n.mwi-r-profile:hover { text-decoration: none; background: var(--r-accent-strong); box-shadow: 0 0 12px rgba(224, 52, 60, .75); transform: translateY(-1px); }\n.mwi-r-badge {\n    min-width: 22px; padding: 1px 7px; text-align: center;\n    font-size: 12px; font-weight: 700; color: var(--r-bg);\n    background: var(--r-ok); border-radius: 10px;\n}\n.mwi-r-ctrl { display: flex; gap: 4px; }\n.mwi-r-icon {\n    width: 24px; height: 24px; padding: 0; line-height: 1;\n    display: flex; align-items: center; justify-content: center;\n    color: var(--r-text); background: transparent;\n    border: 1px solid var(--r-border); border-radius: 5px;\n    cursor: pointer; font-size: 14px; transition: background .15s, border-color .15s;\n}\n.mwi-r-icon:hover { background: var(--r-panel-2); border-color: var(--r-accent); }\n.mwi-r-icon.close:hover { background: var(--r-err); border-color: var(--r-err); }\n\n.mwi-r-body { display: flex; flex-direction: column; gap: 10px; padding: 10px; flex: 1; min-height: 0; }\n\n.mwi-r-toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }\n\n.mwi-r-chans-head { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--r-muted); }\n.mwi-r-chans { display: flex; flex-wrap: wrap; gap: 4px; }\n.mwi-r-chan {\n    display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;\n    font-size: 11px; cursor: pointer; user-select: none;\n    background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 10px;\n}\n.mwi-r-chan:has(input:checked) { border-color: var(--r-accent); color: var(--r-text); }\n.mwi-r-chan:not(:has(input:checked)) { color: var(--r-muted); opacity: .7; }\n.mwi-r-chan.iron:has(input:checked) { border-color: var(--r-warn); }\n.mwi-r-chan input { margin: 0; accent-color: var(--r-accent); }\n.mwi-r-chan-empty { font-size: 11px; font-style: italic; color: var(--r-muted); }\n.mwi-r-iron { font-size: 11px; font-weight: 700; color: var(--r-warn); margin-left: 4px; }\n.mwi-r-select {\n    flex: 0 1 150px; padding: 5px 8px; color: var(--r-text);\n    background: var(--r-panel); border: 1px solid var(--r-border);\n    border-radius: 5px; font-size: 12px; outline: none;\n}\n.mwi-r-select:focus { border-color: var(--r-accent); }\n\n.mwi-r-btn {\n    padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer;\n    color: var(--r-text); background: var(--r-panel-2);\n    border: 1px solid var(--r-border); border-radius: 5px;\n    transition: background .15s, border-color .15s, opacity .15s;\n}\n.mwi-r-btn:hover:not(:disabled) { border-color: var(--r-accent); background: #331a1f; }\n.mwi-r-btn.primary { color: #fff; background: var(--r-accent); border-color: var(--r-accent); }\n.mwi-r-btn.primary:hover:not(:disabled) { background: var(--r-accent-strong); }\n.mwi-r-btn:disabled { opacity: .55; cursor: not-allowed; }\n\n.mwi-r-list {\n    overflow-x: hidden; padding-right: 2px;\n    flex: 1; min-height: 120px; max-height: 320px; overflow-y: auto;\n    list-style: none; margin: 0; padding: 0;\n    display: grid; grid-template-columns: 1fr; gap: 6px; align-content: start;\n}\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-list {\n    max-height: none;\n    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));\n}\n.mwi-r-list::-webkit-scrollbar { width: 8px; }\n.mwi-r-list::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }\n\n.mwi-r-card {\n    padding: 8px 10px; background: var(--r-panel);\n    border: 1px solid var(--r-border); border-left: 3px solid var(--r-ok);\n    border-radius: 6px;\n}\n.mwi-r-card.guild { border-left-color: var(--r-gold); }\n.mwi-r-card.fail { border-left-color: var(--r-err); }\n.mwi-r-card.pending { border-left-color: var(--r-muted); }\n.mwi-r-name { font-weight: 700; font-size: 14px; color: var(--r-text); display: flex; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; }\n.mwi-r-who { display: flex; align-items: center; min-width: 0; overflow: hidden; }\n.mwi-r-who .mwi-r-player { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.mwi-r-iron { flex-shrink: 0; }\n.mwi-r-right { flex-shrink: 0; }\n.mwi-r-card { min-width: 0; transition: border-color .15s, background .15s; }\n.mwi-r-card:hover { background: var(--r-panel-2); border-color: var(--r-accent); }\n.mwi-r-tag { font-size: 11px; font-weight: 700; color: var(--r-muted); white-space: nowrap; }\n.mwi-r-card:not(.guild):not(.fail):not(.pending) .mwi-r-tag { color: var(--r-ok); }\n.mwi-r-card.fail .mwi-r-tag { color: var(--r-err); }\n.mwi-r-card.guild .mwi-r-tag { color: var(--r-gold); }\n.mwi-r-stats { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 5px; font-size: 12px; color: var(--r-muted); }\n.mwi-r-stats b { color: var(--r-text); font-weight: 600; }\n.mwi-r-sizes { display: flex; gap: 2px; padding: 2px; background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px; }\n.mwi-r-sizes .mwi-r-icon { border-color: transparent; color: var(--r-muted); }\n.mwi-r-sizes .mwi-r-icon.active { color: var(--r-accent); background: var(--r-panel-2); border-color: var(--r-accent); }\n.mwi-r-details { display: none; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 6px 0 0; font-size: 12px; }\n.mwi-r-details dt { color: var(--r-muted); }\n.mwi-r-details dd { margin: 0; color: var(--r-text); font-weight: 600; }\n\n/* Taille des cases : grandes = toutes les infos en liste, moyennes = bouton visible, petites = bouton au survol */\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-card { padding: 10px 12px; }\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-name { font-size: 15px; }\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-stats,\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-tag { display: none; }\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-details { display: grid; }\n#mwi-tracker-modal[data-size=\"large\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-profile,\n#mwi-tracker-modal[data-size=\"medium\"] .mwi-r-profile { visibility: visible; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card { padding: 4px 8px; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-name { font-size: 13px; align-items: center; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-stats { display: none; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-list { gap: 3px; }\n#mwi-tracker-modal[data-size=\"small\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card:hover .mwi-r-profile { visibility: visible; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card { border-left-width: 1px; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-tag { font-size: 0; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-tag::before {\n    content: ''; display: block; width: 8px; height: 8px; border-radius: 50%; background: currentColor;\n}\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card.pending .mwi-r-tag { color: var(--r-muted); }\n#mwi-tracker-modal[data-size=\"medium\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }\n.mwi-r-card[data-player] { cursor: pointer; }\n\n/* Fiche joueur */\n.mwi-r-pview { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 8px; }\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-pview { display: flex; }\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-list,\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-toolbar,\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-chans-head,\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-chans { display: none; }\n.mwi-r-phead { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--r-border); }\n.mwi-r-pname { flex: 1; min-width: 0; font-size: 17px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.mwi-r-pview .mwi-r-profile { visibility: visible; }\n.mwi-r-ptabs { display: flex; flex-wrap: wrap; gap: 4px; }\n.mwi-r-ptab {\n    padding: 4px 10px; font-size: 12px; font-weight: 700; cursor: pointer;\n    color: var(--r-muted); background: var(--r-panel);\n    border: 1px solid var(--r-border); border-radius: 14px;\n    transition: color .15s, border-color .15s, background .15s;\n}\n.mwi-r-ptab:hover { color: var(--r-text); border-color: var(--r-accent); }\n.mwi-r-ptab.active { color: #fff; background: var(--r-accent); border-color: var(--r-accent); }\n.mwi-r-pbody {\n    flex: 1; min-height: 140px; max-height: 360px; overflow-y: auto; padding: 10px 12px;\n    background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px;\n}\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-pbody,\n#mwi-tracker-modal[data-sized=\"1\"] .mwi-r-pbody { max-height: none; }\n.mwi-r-pbody::-webkit-scrollbar { width: 8px; }\n.mwi-r-pbody::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }\n.mwi-r-pgrid { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: 13px; }\n.mwi-r-pgrid dt { color: var(--r-muted); }\n.mwi-r-pgrid dd { margin: 0; font-weight: 700; }\n.mwi-r-pstat.free { color: var(--r-ok); }\n.mwi-r-pstat.guild { color: var(--r-gold); }\n.mwi-r-pstat.fail { color: var(--r-err); }\n.mwi-r-pstat.pending { color: var(--r-muted); }\n.mwi-r-plines { list-style: none; margin: 0; padding: 0; columns: 220px; column-gap: 20px; font-size: 12px; }\n.mwi-r-plines li { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,.04); break-inside: avoid; }\n.mwi-r-ptab:focus { outline: none; }\n.mwi-r-rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 0 20px; margin: 0; font-size: 13px; }\n.mwi-r-row {\n    display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px;\n    padding: 6px 2px; border-bottom: 1px solid rgba(255,255,255,.06);\n}\n.mwi-r-row dt { color: var(--r-muted); }\n.mwi-r-row dd { margin: 0; font-weight: 700; color: var(--r-text); text-align: right; font-variant-numeric: tabular-nums; }\n.mwi-r-row.done dd { color: var(--r-ok); }\n.mwi-r-bar { flex-basis: 100%; height: 4px; background: var(--r-bg); border-radius: 2px; overflow: hidden; }\n.mwi-r-bar > div { height: 100%; background: var(--r-accent); border-radius: 2px; }\n.mwi-r-row.done .mwi-r-bar > div { background: var(--r-ok); }\n.mwi-r-solos { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 12px; }\n.mwi-r-solo-label { color: var(--r-muted); }\n.mwi-r-solo { padding: 2px 10px; font-weight: 700; color: var(--r-text); background: var(--r-bg); border: 1px solid var(--r-border); border-radius: 12px; }\n.mwi-r-solo-label ~ .mwi-r-solo { font-weight: 400; color: var(--r-muted); border-style: dashed; }\n/* Cases du profil : icône au centre, textes et badges dans les coins */\n.mwi-r-tiles {\n    --tile: 58px;\n    display: grid; grid-template-columns: repeat(auto-fill, var(--tile)); grid-auto-rows: var(--tile);\n    gap: 6px; margin-top: 10px; justify-content: start; overflow-x: auto; padding-bottom: 2px;\n}\n.mwi-r-tiles:first-child { margin-top: 0; }\n.mwi-r-tiles.placed { grid-template-columns: repeat(var(--cols), var(--tile)); }\n.mwi-r-tile {\n    position: relative; width: var(--tile); height: var(--tile);\n    display: flex; align-items: center; justify-content: center;\n    background: linear-gradient(160deg, var(--r-panel-2), var(--r-bg));\n    border: 1px solid var(--r-border); border-radius: 6px;\n    transition: border-color .15s, box-shadow .15s;\n}\n.mwi-r-tile:hover { border-color: var(--r-accent); box-shadow: 0 0 8px rgba(224, 52, 60, .35); }\n.mwi-r-tico { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; }\n.mwi-r-tico svg, .mwi-r-tico img { width: 40px; height: 40px; object-fit: contain; }\n.mwi-r-tt {\n    position: absolute; max-width: calc(100% - 4px); overflow: hidden; white-space: nowrap;\n    font-size: 11px; font-weight: 700; line-height: 1; color: var(--r-text);\n    text-shadow: 0 0 3px #000, 0 0 3px #000;\n}\n.mwi-r-tt.tl { top: 3px; left: 3px; }\n.mwi-r-tt.tc { top: 3px; left: 50%; transform: translateX(-50%); }\n.mwi-r-tt.tr { top: 3px; right: 3px; }\n.mwi-r-tt.bl { bottom: 3px; left: 3px; }\n.mwi-r-tt.bc { bottom: 3px; left: 50%; transform: translateX(-50%); }\n.mwi-r-tt.br { bottom: 3px; right: 3px; }\n.mwi-r-tt.plus { color: var(--r-warn); }\n.mwi-r-tt.num { color: var(--r-ok); }\n.mwi-r-tb { position: absolute; width: 16px; height: 16px; }\n.mwi-r-tb svg, .mwi-r-tb img { width: 16px; height: 16px; }\n.mwi-r-tb.tl { top: 2px; left: 2px; }\n.mwi-r-tb.tr { top: 2px; right: 2px; }\n.mwi-r-tb.bl { bottom: 2px; left: 2px; }\n.mwi-r-tb.br { bottom: 2px; right: 2px; }\n.mwi-r-tb.tc { top: 2px; left: calc(50% - 8px); }\n.mwi-r-tb.bc { bottom: 2px; left: calc(50% - 8px); }\n.mwi-r-tile.vide { background: none; border-style: dashed; opacity: .75; }\n.mwi-r-tname { padding: 2px; font-size: 9px; line-height: 1.15; text-align: center; color: var(--r-muted); overflow: hidden; }\n.mwi-r-sub { margin: 14px 0 6px; font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--r-muted); }\n.mwi-r-sub:first-child { margin-top: 0; }\n.mwi-r-psec .mwi-r-sub + .mwi-r-tiles, .mwi-r-sub + .mwi-r-tiles { margin-top: 0; }\n.mwi-r-pempty { margin: 10px 0 0; font-style: italic; color: var(--r-muted); font-size: 12px; }\n\n/* Petite fenêtre : un onglet à la fois. Modale large : toutes les sections répertoriées en colonnes, sans onglets */\n.mwi-r-pview { container-type: inline-size; container-name: mwi-pview; }\n.mwi-r-psec:not(.active) { display: none; }\n.mwi-r-psec-title { display: none; }\n@container mwi-pview (min-width: 880px) {\n    .mwi-r-ptabs { display: none; }\n    .mwi-r-pbody { padding: 0 4px 0 0; background: none; border: 0; border-radius: 0; }\n    .mwi-r-psecs { columns: 420px; column-gap: 12px; }\n    .mwi-r-psec, .mwi-r-psec:not(.active) {\n        display: block; break-inside: avoid; margin: 0 0 12px; padding: 12px 14px 14px;\n        background: linear-gradient(180deg, var(--r-panel-2), var(--r-panel) 46px);\n        border: 1px solid var(--r-border); border-top: 2px solid var(--r-accent); border-radius: 8px;\n        box-shadow: 0 2px 10px rgba(0,0,0,.35);\n    }\n    .mwi-r-psec-title {\n        display: flex; align-items: center; gap: 8px; margin: 0 0 12px;\n        font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--r-gold);\n    }\n    .mwi-r-psec-title::after { content: ''; flex: 1; height: 1px; background: var(--r-border); }\n    .mwi-r-psec .mwi-r-rows { grid-template-columns: 1fr; }\n    .mwi-r-psec .mwi-r-tiles { justify-content: center; }\n}\n/* Très grande modale : trois colonnes indépendantes (Skills | Résumé, Overview | Equipment), le reste réparti en dessous */\n.mwi-r-pcol { display: contents; }\n@container mwi-pview (min-width: 1200px) {\n    .mwi-r-psecs {\n        columns: auto; display: grid; gap: 12px; align-items: start;\n        grid-template-columns: minmax(0, .8fr) minmax(0, 1fr) minmax(400px, 1.1fr);\n    }\n    .mwi-r-pcol { display: flex; flex-direction: column; gap: 12px; min-width: 0; }\n    .mwi-r-psec, .mwi-r-psec:not(.active) { margin: 0; min-width: 0; }\n    /* Cases plus grandes, réparties sur toute la largeur de la section */\n    .mwi-r-psec .mwi-r-tiles {\n        --tile: clamp(58px, 4cqw, 72px); gap: 12px 8px; margin-top: 12px;\n        grid-template-columns: repeat(auto-fill, minmax(calc(var(--tile) + 14px), 1fr));\n        justify-content: stretch; justify-items: center;\n    }\n    .mwi-r-psec .mwi-r-tiles.placed { grid-template-columns: repeat(var(--cols), minmax(var(--tile), 1fr)); }\n    .mwi-r-psec .mwi-r-tico, .mwi-r-psec .mwi-r-tico svg, .mwi-r-psec .mwi-r-tico img { width: calc(var(--tile) - 18px); height: calc(var(--tile) - 18px); }\n    .mwi-r-psec .mwi-r-tt { font-size: 12px; }\n}\n\n.mwi-r-empty { padding: 18px 8px; text-align: center; font-style: italic; color: var(--r-muted); background: var(--r-panel); border: 1px dashed var(--r-border); border-radius: 6px; }\n\n.mwi-r-progress { height: 4px; background: var(--r-panel); border-radius: 2px; overflow: hidden; display: none; }\n.mwi-r-progress > div { height: 100%; width: 0; background: var(--r-accent); transition: width .2s; }\n\n.mwi-r-actions { display: flex; gap: 8px; }\n.mwi-r-actions .mwi-r-btn { flex: 1; }\n\n.mwi-r-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 11px; color: var(--r-muted); }\n#mwi-status.ok { color: var(--r-ok); }\n#mwi-status.warn { color: var(--r-warn); }\n#mwi-status.err { color: var(--r-err); }\n\n#mwi-radar-launcher {\n    position: fixed; bottom: 16px; right: 16px; z-index: 99998; display: none;\n    width: 44px; height: 44px; align-items: center; justify-content: center;\n    font-size: 20px; cursor: pointer; color: var(--r-accent);\n    background: var(--r-panel); border: 1px solid var(--r-border);\n    border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,.5);\n}\n#mwi-radar-launcher:hover { border-color: var(--r-accent); background: var(--r-panel-2); }\n";
 
     function loadUI() {
         try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch (e) { return {}; }
@@ -613,16 +647,158 @@ console.log('[Fabio RH] console-test :', "1a6fb08 - Fiche joueur : cases de Skil
             else if (/^\(?\d+\s*\/\s*\d+\)?$/.test(l)) rows.push(['Achievements', l]); // libellé homonyme d'un onglet, retiré à la lecture
             else solos.push(l);
         }
-        const rowHtml = ([k, v]) => {
-            const m = v.match(/^\(?(\d+)\s*\/\s*(\d+)\)?$/);
+        return (solos.length ? `<div class="mwi-r-solos">${soloLabel ? `<span class="mwi-r-solo-label">${esc(soloLabel)}</span>` : ''}${
+            solos.map(s => `<span class="mwi-r-solo">${esc(s)}</span>`).join('')}</div>` : '') + rowsToHtml(rows);
+    }
+
+    // Lignes [libellé, valeur] ; une valeur "x / y" reçoit une jauge
+    function rowsToHtml(rows) {
+        if (!rows.length) return '';
+        return `<dl class="mwi-r-rows">${rows.map(([k, v]) => {
+            const m = String(v).match(/^\(?(\d+)\s*\/\s*(\d+)\)?$/);
             if (!m) return `<div class="mwi-r-row"><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`;
             const pct = +m[2] ? Math.min(100, Math.round(m[1] / m[2] * 100)) : 0;
             return `<div class="mwi-r-row${pct === 100 ? ' done' : ''}"><dt>${esc(k)}</dt><dd>${m[1]} / ${m[2]}</dd>
                 <div class="mwi-r-bar"><div style="width: ${pct}%"></div></div></div>`;
-        };
-        return (solos.length ? `<div class="mwi-r-solos">${soloLabel ? `<span class="mwi-r-solo-label">${esc(soloLabel)}</span>` : ''}${
-            solos.map(s => `<span class="mwi-r-solo">${esc(s)}</span>`).join('')}</div>` : '')
-            + (rows.length ? `<dl class="mwi-r-rows">${rows.map(rowHtml).join('')}</dl>` : '');
+        }).join('')}</dl>`;
+    }
+
+    // Section lue à l'écran (cases et lignes de texte d'un onglet du profil)
+    function domSectionHtml(s) {
+        // Achievements et sanctuaires : pas d'icônes, seulement les noms et leur valeur
+        const shrine = /shrine/i.test(s.titre);
+        const tuiles = shrine || /achievement|succ[èe]s/i.test(s.titre) ? [] : (s.tuiles || []);
+        // Dans l'équipement, un texte isolé est le nom d'un emplacement vide
+        const soloLabel = tuiles.length && /equip/i.test(s.titre) ? 'Vide :' : '';
+        return tuiles.length || s.lignes.length
+            ? (s.lignes.length ? linesToHtml(s.lignes, soloLabel, shrine ? /^shrine/i : null) : '') + tilesToHtml(tuiles, /skill/i.test(s.titre))
+            : '<p class="mwi-r-pempty">Rien dans cet onglet.</p>';
+    }
+
+    // --- Sections construites à partir des données brutes du profil ---
+    const hridName = (h) => String(h || '').split('/').pop();
+    const pretty = (h) => hridName(h).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    const nb = (n) => isFinite(n) && n !== '' && n !== null ? Number(n).toLocaleString('fr-FR') : String(n);
+
+    // Adresse d'une planche d'icônes du jeu (items, skills, abilities), retrouvée dans la page ou les fichiers chargés
+    const sprites = {}, spritesMiss = {};
+    function spriteUrl(kind) {
+        if (sprites[kind]) return sprites[kind];
+        if (Date.now() - (spritesMiss[kind] || 0) < 3000) return '';
+        const re = new RegExp(`[^"'\\s#]*/${kind}_sprite\\.[^"'\\s#]*\\.svg`);
+        const hrefs = Array.from(document.querySelectorAll('use'), u => u.getAttribute('href') || u.getAttribute('xlink:href') || '')
+            .concat(performance.getEntriesByType('resource').map(e => e.name));
+        const hit = hrefs.map(h => (h.match(re) || [])[0]).find(Boolean);
+        if (!hit) spritesMiss[kind] = Date.now();
+        return hit ? (sprites[kind] = hit) : '';
+    }
+    // Sans planche trouvée, la case affiche le nom à la place de l'icône
+    const spriteIcon = (kind, hrid) => {
+        const url = spriteUrl(kind);
+        return url ? `<svg><use href="${esc(url)}#${esc(hridName(hrid))}"></use></svg>` : '';
+    };
+
+    const SKILLS = ['milking', 'foraging', 'woodcutting', 'cheesesmithing', 'crafting', 'tailoring', 'cooking', 'brewing', 'alchemy',
+        'enhancing', 'stamina', 'intelligence', 'attack', 'defense', 'melee', 'ranged', 'magic'];
+    const ROOMS = ['dairy_barn', 'garden', 'log_shed', 'forge', 'workshop', 'sewing_parlor', 'kitchen', 'brewery', 'laboratory',
+        'observatory', 'dining_room', 'library', 'dojo', 'armory', 'gym', 'archery_range', 'mystical_study'];
+    // Emplacement d'équipement -> [colonne, ligne], comme dans le jeu
+    const SLOTS = {
+        back: [0, 0], head: [1, 0], trinket: [2, 0], neck: [4, 0],
+        main_hand: [0, 1], body: [1, 1], off_hand: [2, 1], earrings: [4, 1],
+        hands: [0, 2], legs: [1, 2], pouch: [2, 2], ring: [4, 2],
+        feet: [1, 3], charm: [4, 3],
+        milking_tool: [0, 4], foraging_tool: [1, 4], woodcutting_tool: [2, 4], cheesesmithing_tool: [3, 4], crafting_tool: [4, 4],
+        tailoring_tool: [0, 5], cooking_tool: [1, 5], brewing_tool: [2, 5], alchemy_tool: [3, 5], enhancing_tool: [4, 5]
+    };
+    const TRIGGER_FR = {
+        self: 'Soi', targeted_enemy: 'Cible', all_enemies: 'Ennemis', all_allies: 'Alliés',
+        current_hp: 'PV', current_mp: 'PM', missing_hp: 'PV manquants', missing_mp: 'PM manquants',
+        number_of_active_units: 'nombre en vie',
+        greater_than_equal: '≥', less_than_equal: '≤', is_active: 'actif', is_inactive: 'inactif'
+    };
+    const trig = (h) => TRIGGER_FR[hridName(h)] || pretty(h);
+    // "Soi : PV manquants ≥ 150", plusieurs conditions reliées par "et"
+    const triggersText = (list) => (list || []).map(t => {
+        const cmp = hridName(t.comparatorHrid);
+        return `${trig(t.dependencyHrid)} : ${trig(t.conditionHrid)} ${trig(t.comparatorHrid)}${/^is_/.test(cmp) ? '' : ' ' + nb(t.value)}`;
+    }).join(' et ');
+
+    function sectionsFromData(b, p, dom) {
+        const c = b.sharableCharacter || {};
+        const levels = new Map((b.characterSkills || []).map(s => [hridName(s.skillHrid), s.level]));
+        const done = (b.characterAchievements || []).filter(a => a.isCompleted).length;
+        const sub = (t) => `<h4 class="mwi-r-sub">${esc(t)}</h4>`;
+        const sections = [];
+
+        const etat = [c.actionType && pretty(c.actionType), c.hideOnlineStatus ? '' : (c.isOnline ? 'En ligne' : 'Hors ligne')].filter(Boolean).join(' · ');
+        const overview = [];
+        if (b.guildName) overview.push([`${pretty(b.guildRole)} of`, b.guildName]);
+        if (etat) overview.push(['Activité', etat]);
+        overview.push(['Total Level', nb(levels.has('total_level') ? levels.get('total_level') : p.stats.total)],
+            ['Combat Level', nb(Math.floor(b.combatLevel))],
+            ['Achievements réalisés', nb(done)],
+            ['Task Points', nb(b.totalTaskPoints)],
+            ['Labyrinth Points', nb(b.labyrinthPoints)]);
+        if (b.labyrinthHighestFloor) overview.push(['Highest Floor', `Floor ${b.labyrinthHighestFloor} (${b.labyrinthHighestFloorRooms} Rooms)`]);
+        overview.push(['Collection Points', nb(b.collectionPoints)], ['Bestiary Points', nb(b.bestiaryPoints)], ['Age', p.stats.age]);
+        sections.push({ titre: 'Overview', html: rowsToHtml(overview) });
+
+        sections.push({ titre: 'Skills', html: tilesToHtml(SKILLS.filter(k => levels.has(k)).map(k => ({
+            icone: spriteIcon('skills', k), nom: pretty(k), textes: [{ t: `Lv.${levels.get(k)}`, coin: 'tl' }]
+        })), true) });
+
+        if (b.hideWearableItems) {
+            sections.push({ titre: 'Equipment', html: '<p class="mwi-r-pempty">Équipement masqué par le joueur.</p>' });
+        } else {
+            const worn = {};
+            Object.values(b.wearableItemMap || {}).forEach(it => {
+                const loc = hridName(it.itemLocationHrid);
+                worn[loc === 'two_hand' ? 'main_hand' : loc] = it;
+            });
+            let extra = 0;
+            const tuiles = Object.keys(SLOTS).concat(Object.keys(worn).filter(k => !SLOTS[k])).map(loc => {
+                const it = worn[loc], [col, row] = SLOTS[loc] || [extra++, 6];
+                return it ? {
+                    icone: spriteIcon('items', it.itemHrid), nom: pretty(it.itemHrid), col, row,
+                    textes: it.enhancementLevel ? [{ t: `+${it.enhancementLevel}`, coin: 'tl' }] : []
+                } : { icone: '', nom: pretty(loc), vide: true, col, row, textes: [] };
+            });
+            sections.push({ titre: 'Equipment', html: tilesToHtml(tuiles) });
+        }
+
+        // Build de combat en cours : capacités, consommables et leurs conditions de déclenchement
+        const abilities = [...(b.equippedAbilities || [])].sort((x, y) => x.slotNumber - y.slotNumber);
+        const consos = b.combatConsumables || [];
+        if (abilities.length || consos.length) {
+            const triggers = abilities.map(a => [pretty(a.abilityHrid), triggersText((b.abilityCombatTriggersMap || {})[a.abilityHrid])])
+                .concat(consos.map(i => [pretty(i.itemHrid), triggersText((b.consumableCombatTriggersMap || {})[i.itemHrid])]))
+                .filter(r => r[1]);
+            sections.push({ titre: 'Combat', html:
+                (abilities.length ? sub('Capacités') + tilesToHtml(abilities.map(a => ({
+                    icone: spriteIcon('abilities', a.abilityHrid), nom: pretty(a.abilityHrid), textes: [{ t: `Lv.${a.level}`, coin: 'tl' }]
+                })), true) : '')
+                + (consos.length ? sub('Consommables') + tilesToHtml(consos.map(i => ({
+                    icone: spriteIcon('items', i.itemHrid), nom: pretty(i.itemHrid), textes: []
+                })), true) : '')
+                + (triggers.length ? sub('Déclencheurs') + rowsToHtml(triggers) : '') });
+        }
+
+        const rooms = Object.values(b.characterHouseRoomMap || {}).filter(r => r.level > 0)
+            .sort((x, y) => ROOMS.indexOf(hridName(x.houseRoomHrid)) - ROOMS.indexOf(hridName(y.houseRoomHrid)));
+        sections.push({ titre: 'House', html: rowsToHtml([['Pièces construites', `${rooms.length} / ${ROOMS.length}`]]
+            .concat(rooms.map(r => [pretty(r.houseRoomHrid), `Niv. ${r.level}`]))) });
+
+        const shrines = Object.entries(b.guildBuffLevelMap || {}).filter(([, lvl]) => lvl > 0).sort();
+        if (shrines.length) sections.push({ titre: 'Shrines', html: rowsToHtml(shrines.map(([h, lvl]) => {
+            const [nom, type] = hridName(h).split(/_(?=[^_]+$)/);
+            return [`Shrine of ${pretty(nom)} · ${pretty(type)}`, `Niv. ${lvl}`];
+        })) });
+
+        // Le détail par groupe n'est pas dans les données : il vient de l'onglet Achievements lu à l'écran
+        const ach = dom.find(s => /achievement/i.test(s.titre));
+        sections.push({ titre: 'Achievements', html: ach && ach.lignes.length ? domSectionHtml(ach) : rowsToHtml([['Réalisés', nb(done)]]) });
+        return sections;
     }
 
     function renderProfileView() {
@@ -632,31 +808,21 @@ console.log('[Fabio RH] console-test :', "1a6fb08 - Fiche joueur : cases de Skil
         const cat = playerCategory(p);
         const statut = { free: 'Sans guilde', guild: 'En guilde', fail: 'Profil illisible', pending: 'En attente' }[cat];
         const nameStyle = p.color ? `color: ${p.color};` : '';
+        const brut = profilsBruts.get(p.nom);
 
         const resume = `<dl class="mwi-r-pgrid">
                 <dt>Statut</dt><dd class="mwi-r-pstat ${cat}">${statut}</dd>
                 <dt>Mode</dt><dd>${p.ironcow ? '🐄 Ironcow' : 'Standard'}</dd>
                 ${cat === 'guild' ? `<dt>Guilde</dt><dd>${esc(p.guilde)}</dd><dt>Rang</dt><dd>${esc(p.rang)}</dd>` : ''}
-                ${p.profil ? '' : `<dt>🛡️ Total</dt><dd>${esc(p.stats.total)}</dd>
+                ${p.profil || brut ? '' : `<dt>🛡️ Total</dt><dd>${esc(p.stats.total)}</dd>
                 <dt>⚔️ Combat</dt><dd>${esc(p.stats.combat)}</dd>
                 <dt>⏳ Age</dt><dd>${esc(p.stats.age)}</dd>`}
             </dl>`;
+        const dom = (p.profil && p.profil.sections) || [];
         const sections = [{ titre: 'Résumé', html: resume }].concat(
-            ((p.profil && p.profil.sections) || []).map(s => {
-                // Achievements et sanctuaires : pas d'icônes, seulement les noms et leur valeur
-                const shrine = /shrine/i.test(s.titre);
-                const tuiles = shrine || /achievement|succ[èe]s/i.test(s.titre) ? [] : (s.tuiles || []);
-                // Dans l'équipement, un texte isolé est le nom d'un emplacement vide
-                const soloLabel = tuiles.length && /equip/i.test(s.titre) ? 'Vide :' : '';
-                return {
-                    titre: s.titre,
-                    html: tuiles.length || s.lignes.length
-                        ? (s.lignes.length ? linesToHtml(s.lignes, soloLabel, shrine ? /^shrine/i : null) : '') + tilesToHtml(tuiles, /skill/i.test(s.titre))
-                        : '<p class="mwi-r-pempty">Rien dans cet onglet.</p>'
-                };
-            }));
+            brut ? sectionsFromData(brut, p, dom) : dom.map(s => ({ titre: s.titre, html: domSectionHtml(s) })));
         if (currentSection >= sections.length) currentSection = 0;
-        const hint = p.profil ? '' : `<p class="mwi-r-pempty">${p.verifie
+        const hint = p.profil || brut ? '' : `<p class="mwi-r-pempty">${p.verifie
             ? 'Détails non récupérés pour ce joueur : relance la vérification.'
             : 'Profil pas encore vérifié : clique sur « 2. Vérifier Profils » pour récupérer toutes les infos.'}</p>`;
 
@@ -712,8 +878,8 @@ console.log('[Fabio RH] console-test :', "1a6fb08 - Fiche joueur : cases de Skil
         return `<div class="mwi-r-tiles${placed ? ' placed' : ''}"${style}>${tuiles.map(t => {
             const textes = t.textes || (t.texte ? [{ t: t.texte, coin: 'tl' }] : []);
             const pos = placed ? ` style="grid-column: ${t.col + 1}; grid-row: ${t.row + 1}"` : '';
-            return `<div class="mwi-r-tile"${pos} title="${esc(t.nom || textes.map(x => x.t).join(' '))}">
-                <div class="mwi-r-tico">${t.icone}</div>
+            return `<div class="mwi-r-tile${t.vide ? ' vide' : ''}"${pos} title="${esc(t.nom || textes.map(x => x.t).join(' '))}">
+                ${t.icone ? `<div class="mwi-r-tico">${t.icone}</div>` : `<span class="mwi-r-tname">${esc(t.nom || '')}</span>`}
                 ${textes.map(x => `<span class="mwi-r-tt ${x.coin}${valueClass(x.t)}">${esc(x.t)}</span>`).join('')}
                 ${(t.badges || []).map(bd => `<span class="mwi-r-tb ${bd.coin}">${bd.icone}</span>`).join('')}
             </div>`;
@@ -1029,14 +1195,16 @@ console.log('[Fabio RH] console-test :', "1a6fb08 - Fiche joueur : cases de Skil
 
     // Parcourt chaque onglet puis revient au premier ; le contenu d'un onglet est repéré
     // grâce aux lignes qui ont changé par rapport à l'onglet affiché juste avant
-    async function readProfileTabs(profileEl) {
+    // filtre : ne lire que les onglets dont le nom correspond (le reste vient des données brutes)
+    async function readProfileTabs(profileEl, filtre) {
         const found = findProfileTabs(profileEl);
         if (!found || found.tabs.length === 0) return { root: profileEl, sections: [{ titre: 'Profil', lignes: textLines(profileEl) }] };
 
         const { root, tablist, tabs } = found;
         const labels = tabs.map(t => (t.innerText || t.textContent || '').trim() || 'Onglet');
         const raw = new Array(tabs.length), data = new Array(tabs.length);
-        const order = tabs.length > 1 ? [...tabs.keys(), 0] : [0];
+        const voulus = [...tabs.keys()].filter(i => i === 0 || !filtre || filtre.test(labels[i]));
+        const order = tabs.length > 1 ? [...voulus, 0] : [0];
         let prevLines = null;
         for (let step = 0; step < order.length; step++) {
             const i = order[step];
@@ -1062,7 +1230,7 @@ console.log('[Fabio RH] console-test :', "1a6fb08 - Fiche joueur : cases de Skil
             titre: labels[i],
             tuiles: data[i] ? data[i].tuiles : [],
             lignes: (data[i] ? data[i].lignes : lignes).filter(l => !common.has(l))
-        })) };
+        })).filter(Boolean) };
     }
 
     async function analyzeProfile(username) {
@@ -1108,7 +1276,8 @@ console.log('[Fabio RH] console-test :', "1a6fb08 - Fiche joueur : cases de Skil
 
         // Lecture de chaque onglet du profil (sections affichées ensuite dans la fiche du joueur)
         try {
-            const lecture = await readProfileTabs(found.el);
+            // Avec les données brutes, seul l'onglet Achievements (détail par groupe) reste à lire à l'écran
+            const lecture = await readProfileTabs(found.el, profilsBruts.has(username) ? /achievement/i : null);
             if (lecture.sections.length) playerData.profil = { sections: lecture.sections, lu: Date.now() };
             // Le jeu a pu redessiner le bloc en changeant d'onglet : on ferme via le conteneur des onglets
             if (!found.el.isConnected) found.el = lecture.root;

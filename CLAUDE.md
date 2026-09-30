@@ -24,6 +24,8 @@ Dépôt : https://github.com/jameslemoine/fabio-rh-recruitment (compte GitHub `j
 3. `node tools/build-console.js` puis `node --check console-test.js` : l'en-tête de `console-test.js` (et un `console.log` au lancement) reprend le hash et le titre de ce commit, pour savoir quelle version on teste.
 4. Commit de `console-test.js` seul, puis push sur `origin dev`.
 
+Sans Node sur la machine : `python3 tools/build-console.py` produit le même fichier, et `gjs` (SpiderMonkey) peut vérifier la syntaxe avec `new Function(source)`.
+
 Ne jamais modifier `console-test.js` à la main.
 
 ## « Push sur main »
