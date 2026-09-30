@@ -1,7 +1,7 @@
 // Fichier généré par tools/build-console.js - ne pas modifier à la main.
 // Coller tout le contenu dans la console du jeu (F12) pour tester sans Tampermonkey.
-// Version : e650715 - Leaderboard : lit les classements dans les messages du serveur (leaderboard_updated) au lieu de l'écran
-console.log('[Fabio RH] console-test :', "e650715 - Leaderboard : lit les classements dans les messages du serveur (leaderboard_updated) au lieu de l'écran");
+// Version : 1a80196 - Leaderboard : demandes espacées, attente plus longue et second passage sur les classements sans réponse
+console.log('[Fabio RH] console-test :', "1a80196 - Leaderboard : demandes espacées, attente plus longue et second passage sur les classements sans réponse");
 (function() {
     'use strict';
 
@@ -372,11 +372,19 @@ console.log('[Fabio RH] console-test :', "e650715 - Leaderboard : lit les classe
         }
     }
 
-    // Attend la réponse du serveur au clic sur un classement
-    async function waitLb(seq) {
-        for (let k = 0; k < 75 && lbRecus.seq === seq; k++) await sleep(POLL_MS);
-        await sleep(250); // on ne bombarde pas le serveur
-        return lbRecus.seq !== seq;
+    // Rythme des demandes de classement : le serveur ignore celles qui arrivent trop vite.
+    // L'intervalle s'allonge dès qu'une demande reste sans réponse.
+    const LB_INTERVALLE_MIN_MS = 1200, LB_INTERVALLE_MAX_MS = 4000, LB_ATTENTE_MS = 8000;
+    let lbIntervalleMs = LB_INTERVALLE_MIN_MS;
+
+    // Attend la réponse du serveur à une demande faite à l'instant t0, puis la fin de l'intervalle minimum
+    async function waitLb(seq, t0) {
+        while (lbRecus.seq === seq && Date.now() - t0 < LB_ATTENTE_MS) await sleep(POLL_MS);
+        const ok = lbRecus.seq !== seq;
+        if (!ok) lbIntervalleMs = Math.min(lbIntervalleMs * 2, LB_INTERVALLE_MAX_MS);
+        const reste = t0 + lbIntervalleMs - Date.now();
+        if (reste > 0) await sleep(reste);
+        return ok;
     }
 
     // Clique chaque classement de la liste verticale qui contient les onglets a et b ; renvoie le nombre de réponses
@@ -390,13 +398,26 @@ console.log('[Fabio RH] console-test :', "e650715 - Leaderboard : lit les classe
         const tabs = Array.from(box.children).filter(e => txt(e));
         // Le classement déjà affiché passe en dernier : le recliquer ne redemande rien tant qu'un autre n'a pas été ouvert
         const selected = (t) => t.getAttribute('aria-selected') === 'true';
-        let recus = 0;
-        for (const el of tabs.filter(t => !selected(t)).concat(tabs.filter(selected))) {
-            setStatus(`${prefix} : ${txt(el)}...`, '');
-            const seq = lbRecus.seq;
+        const ouvrir = async (el, n, total, essai) => {
+            setStatus(`${prefix} : ${txt(el)} (${n}/${total}${essai ? ', nouvel essai' : ''})...`, '');
+            const seq = lbRecus.seq, t0 = Date.now();
             el.click();
-            if (await waitLb(seq)) recus++;
-            else log(`${prefix} : pas de réponse du serveur pour "${txt(el)}".`);
+            return waitLb(seq, t0);
+        };
+        const ordre = tabs.filter(t => !selected(t)).concat(tabs.filter(selected));
+        const rates = [];
+        let recus = 0;
+        for (let i = 0; i < ordre.length; i++) {
+            if (await ouvrir(ordre[i], i + 1, ordre.length)) recus++; else rates.push(ordre[i]);
+        }
+        // Second passage, plus lent, sur les classements restés sans réponse
+        for (let i = 0; i < rates.length; i++) {
+            if (selected(rates[i])) { // déjà affiché : on passe par un autre classement pour relancer la demande
+                const autre = tabs.find(t => t !== rates[i]);
+                if (autre) await ouvrir(autre, i + 1, rates.length, true);
+            }
+            if (await ouvrir(rates[i], i + 1, rates.length, true)) recus++;
+            else log(`${prefix} : pas de réponse du serveur pour "${txt(rates[i])}".`);
         }
         return recus;
     }
@@ -405,6 +426,14 @@ console.log('[Fabio RH] console-test :', "e650715 - Leaderboard : lit les classe
     // les données elles-mêmes arrivent par onLeaderboard
     async function scanLeaderboard() {
         lbRecus.joueurs.clear(); lbRecus.guildes.clear(); lbRecus.nouveaux = 0;
+        lbIntervalleMs = LB_INTERVALLE_MIN_MS;
+        // Changer d'onglet fait demander au jeu le classement affiché par défaut : on laisse cette demande aboutir
+        const ouvrirOnglet = async (el) => {
+            const seq = lbRecus.seq, t0 = Date.now();
+            el.click();
+            while (lbRecus.seq === seq && Date.now() - t0 < 2500) await sleep(POLL_MS);
+            await sleep(lbIntervalleMs);
+        };
         const bilan = () => ({ countNew: lbRecus.nouveaux, classements: lbRecus.joueurs.size, guildCats: lbRecus.guildes.size });
         const pageAvant = document.querySelector('[class*="NavigationBar_active"]');
         let root = findLeaderboard();
@@ -421,18 +450,16 @@ console.log('[Fabio RH] console-test :', "e650715 - Leaderboard : lit les classe
         for (const mode of modes) {
             const tab = tabEl(root, mode);
             if (!tab) { log(`Leaderboard : onglet "${mode}" introuvable.`); continue; }
-            tab.click();
-            await sleep(TAB_SWITCH_WAIT_MS);
+            await ouvrirOnglet(tab);
             await clickCategories(root, 'Milking', 'Foraging', `Leaderboard ${mode}`);
         }
 
         // Onglet des guildes, sans filtre, pour la comparaison
         const guilds = tabEl(root, 'Guilds');
         if (guilds) {
-            guilds.click();
-            await sleep(TAB_SWITCH_WAIT_MS);
+            await ouvrirOnglet(guilds);
             const all = Array.from(root.querySelectorAll('[class*="guildFilterButton"]')).find(e => txt(e) === 'All');
-            if (all && !/Active/.test(all.className)) { all.click(); await sleep(TAB_SWITCH_WAIT_MS); }
+            if (all && !/Active/.test(all.className)) await ouvrirOnglet(all);
             await clickCategories(root, 'Buildings', 'Shrines', 'Leaderboard guildes');
         } else log('Leaderboard : onglet "Guilds" introuvable.');
         log(`Leaderboard : ${lbRecus.joueurs.size} classements de joueurs, ${lbRecus.guildes.size} de guildes, ${guildes.size} guildes connues.`);
