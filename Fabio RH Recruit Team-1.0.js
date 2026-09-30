@@ -322,10 +322,19 @@
         txt(e) === text && !Array.from(e.children).some(c => txt(c) === text) && e.offsetParent !== null && !horsJeu(e));
     const commonAncestor = (a, b) => { let el = a; while (el && !el.contains(b)) el = el.parentElement; return el; };
 
-    // Page Leaderboard du jeu : le bloc qui contient l'onglet "Guilds" et l'en-tête "Rank" du tableau
+    const visible = (e) => e.offsetParent !== null && !horsJeu(e);
+    // Onglet ou bouton du jeu portant exactement ce texte
+    const tabEl = (root, text) => Array.from(root.querySelectorAll('[role="tab"], button')).find(e => txt(e) === text && visible(e))
+        || exactEls(root, text)[0];
+
+    // Page Leaderboard du jeu (les pages non affichées restent dans le document, masquées) :
+    // le panneau nommé par le jeu, sinon le bloc autour de l'onglet "Guilds" qui contient aussi le tableau
     function findLeaderboard() {
-        const guilds = exactEls(document.body, 'Guilds')[0], rank = exactEls(document.body, 'Rank')[0];
-        return guilds && rank ? commonAncestor(guilds, rank) : null;
+        const panel = Array.from(document.querySelectorAll('[class*="LeaderboardPanel"]')).find(visible);
+        if (panel) return panel;
+        let el = tabEl(document.body, 'Guilds');
+        while (el && el !== document.body && !/Rank[\s\S]*Name/.test(el.textContent)) el = el.parentElement;
+        return el && el !== document.body ? el : null;
     }
 
     // Joueurs du classement affiché : composant CharacterName du jeu, sinon 2e colonne du tableau
@@ -361,13 +370,21 @@
             (nav.closest('[class*="NavigationBar_navigationLink"]') || nav.parentElement).click();
             for (let k = 0; k < 75 && !root; k++) { await sleep(POLL_MS); root = findLeaderboard(); }
         }
-        if (!root) { log('Leaderboard : page introuvable après ouverture (onglet "Guilds" ou colonne "Rank" absents).'); return { countNew, classements }; }
+        if (!root) {
+            log('Leaderboard : page introuvable après ouverture. Éléments "Leaderboard" du document :',
+                Array.from(document.querySelectorAll('[class*="Leaderboard"]'), e => `${e.className}${visible(e) ? '' : ' (masqué)'}`).slice(0, 12));
+            return { countNew, classements };
+        }
+        log('Leaderboard : page trouvée', root.className);
 
         // Onglets du jeu selon le filtre de mode (jamais l'onglet des guildes)
         const modes = currentMode === 'standard' ? ['Standard'] : currentMode === 'ironcow' ? ['Ironcow'] : ['Standard', 'Ironcow'];
         for (const mode of modes) {
-            const tab = exactEls(root, mode)[0];
-            if (!tab) { log(`Leaderboard : onglet "${mode}" introuvable.`); continue; }
+            const tab = tabEl(root, mode);
+            if (!tab) {
+                log(`Leaderboard : onglet "${mode}" introuvable. Onglets vus :`, Array.from(root.querySelectorAll('[role="tab"], button'), txt));
+                continue;
+            }
             let before = await waitLeaderboard(root, null);
             tab.click();
             await sleep(TAB_SWITCH_WAIT_MS);
@@ -375,11 +392,14 @@
             // Liste des classements : le bloc qui contient à la fois "Milking" et "Foraging"
             const m = exactEls(root, 'Milking')[0], f = exactEls(root, 'Foraging')[0];
             const box = m && f && commonAncestor(m, f);
-            if (!box) { log(`Leaderboard : liste des classements introuvable (${mode}).`); continue; }
+            if (!box) {
+                log(`Leaderboard : liste des classements introuvable (${mode}). Onglets vus :`, Array.from(root.querySelectorAll('[role="tab"], button'), txt));
+                continue;
+            }
             const labels = Array.from(box.children, txt).filter(Boolean);
 
             for (const label of labels) {
-                const el = exactEls(box, label)[0];
+                const el = tabEl(box, label);
                 if (!el) continue;
                 setStatus(`Leaderboard ${mode} : ${label}...`, '');
                 el.click();
