@@ -264,6 +264,11 @@
 .mwi-r-tb.br { bottom: 2px; right: 2px; }
 .mwi-r-tb.tc { top: 2px; left: calc(50% - 8px); }
 .mwi-r-tb.bc { bottom: 2px; left: calc(50% - 8px); }
+.mwi-r-tile.vide { background: none; border-style: dashed; opacity: .75; }
+.mwi-r-tname { padding: 2px; font-size: 9px; line-height: 1.15; text-align: center; color: var(--r-muted); overflow: hidden; }
+.mwi-r-sub { margin: 14px 0 6px; font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--r-muted); }
+.mwi-r-sub:first-child { margin-top: 0; }
+.mwi-r-psec .mwi-r-sub + .mwi-r-tiles, .mwi-r-sub + .mwi-r-tiles { margin-top: 0; }
 .mwi-r-pempty { margin: 10px 0 0; font-style: italic; color: var(--r-muted); font-size: 12px; }
 
 /* Petite fenêtre : un onglet à la fois. Modale large : toutes les sections répertoriées en colonnes, sans onglets */
