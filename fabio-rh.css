@@ -287,6 +287,18 @@
     .mwi-r-psec .mwi-r-rows { grid-template-columns: 1fr; }
     .mwi-r-psec .mwi-r-tiles { justify-content: center; }
 }
+/* Très grande modale : Skills à gauche, Résumé puis Overview au milieu, Equipment à droite, le reste dans les places libres en dessous */
+@container mwi-pview (min-width: 1200px) {
+    .mwi-r-psecs {
+        columns: auto; display: grid; gap: 12px; grid-auto-flow: row dense;
+        grid-template-columns: minmax(0, .8fr) minmax(0, 1fr) minmax(400px, 1.1fr);
+    }
+    .mwi-r-psec, .mwi-r-psec:not(.active) { margin: 0; min-width: 0; }
+    .mwi-r-psec[data-key="skills"] { grid-column: 1; }
+    .mwi-r-psec[data-key="resume"] { grid-column: 2; grid-row: 1; }
+    .mwi-r-psec[data-key="overview"] { grid-column: 2; grid-row: 2; }
+    .mwi-r-psec[data-key="equipment"] { grid-column: 3; grid-row: 1 / span 2; }
+}
 
 .mwi-r-empty { padding: 18px 8px; text-align: center; font-style: italic; color: var(--r-muted); background: var(--r-panel); border: 1px dashed var(--r-border); border-radius: 6px; }
 

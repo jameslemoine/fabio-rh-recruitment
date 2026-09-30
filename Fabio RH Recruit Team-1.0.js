@@ -663,6 +663,10 @@
 
         // Toutes les sections sont dans la page : le CSS n'affiche que l'onglet actif en petite fenêtre,
         // et les répertorie toutes côte à côte (sans onglets) quand la modale est large
+        // Très grande modale : Skills à gauche, Résumé puis Overview au milieu, Equipment à droite, le reste en dessous
+        const keys = sections.map((s, i) => i === 0 ? 'resume' : /skill/i.test(s.titre) ? 'skills'
+            : /overview/i.test(s.titre) ? 'overview' : /equip/i.test(s.titre) ? 'equipment' : 'autre');
+        const autres = keys.filter(k => k === 'autre').length;
         const scroll = view.querySelector('.mwi-r-pbody')?.scrollTop || 0;
         view.innerHTML = `
             <div class="mwi-r-phead">
@@ -674,7 +678,7 @@
                 `<button class="mwi-r-ptab${i === currentSection ? ' active' : ''}" data-action="section" data-index="${i}">${esc(s.titre)}</button>`).join('')}
             </div>
             <div class="mwi-r-pbody"><div class="mwi-r-psecs">${sections.map((s, i) =>
-                `<section class="mwi-r-psec${i === currentSection ? ' active' : ''}">
+                `<section class="mwi-r-psec${i === currentSection ? ' active' : ''}" data-key="${keys[i]}"${keys[i] === 'skills' ? ` style="grid-row: 1 / span ${2 + Math.ceil(autres / 2)}"` : ''}>
                     <h3 class="mwi-r-psec-title">${esc(s.titre)}</h3>
                     ${s.html}${i === 0 ? hint : ''}
                 </section>`).join('')}
