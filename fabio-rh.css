@@ -379,3 +379,23 @@
 .mwi-r-dot.on { background: var(--r-ok); opacity: 1; box-shadow: 0 0 6px var(--r-ok); }
 .mwi-r-dot.off { background: var(--r-err); opacity: .8; }
 .mwi-r-dot.masque { background: transparent; border: 1px solid var(--r-muted); }
+
+/* Recherche de joueur avec suggestions */
+.mwi-r-search { position: relative; flex: 1 1 160px; min-width: 140px; }
+.mwi-r-search .mwi-r-select { width: 100%; }
+.mwi-r-sugg {
+    display: none; position: absolute; top: calc(100% + 2px); left: 0; right: 0; z-index: 5;
+    max-height: 260px; overflow-y: auto; margin: 0; padding: 4px 0; list-style: none;
+    background: var(--r-panel); border: 1px solid var(--r-accent); border-radius: 6px;
+    box-shadow: 0 6px 16px rgba(0,0,0,.6); min-width: 220px;
+}
+.mwi-r-sugg.open { display: block; }
+.mwi-r-sugg li { display: flex; align-items: center; gap: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.mwi-r-sugg li .nom { overflow: hidden; text-overflow: ellipsis; }
+.mwi-r-sugg li b { color: var(--r-accent); }
+.mwi-r-sugg li.actif, .mwi-r-sugg li:hover { background: var(--r-panel-2); }
+.mwi-r-sugg li.vide { cursor: default; font-style: italic; color: var(--r-muted); }
+.mwi-r-sugg-tag { margin-left: auto; padding-left: 8px; font-size: 11px; color: var(--r-muted); overflow: hidden; text-overflow: ellipsis; }
+.mwi-r-sugg-tag.free { color: var(--r-ok); }
+.mwi-r-sugg-tag.guild { color: var(--r-gold); }
+.mwi-r-sugg-tag.fail { color: var(--r-err); }

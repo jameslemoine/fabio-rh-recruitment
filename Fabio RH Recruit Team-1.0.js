@@ -729,6 +729,10 @@
                         <button class="mwi-r-icon" data-size="medium" title="Cases moyennes"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><rect x="1" y="1" width="14" height="4" rx="1"/><rect x="1" y="6" width="14" height="4" rx="1"/><rect x="1" y="11" width="14" height="4" rx="1"/></svg></button>
                         <button class="mwi-r-icon" data-size="small" title="Petites cases : profil au survol"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><rect x="1" y="1" width="14" height="2" rx="1"/><rect x="1" y="4" width="14" height="2" rx="1"/><rect x="1" y="7" width="14" height="2" rx="1"/><rect x="1" y="10" width="14" height="2" rx="1"/><rect x="1" y="13" width="14" height="2" rx="1"/></svg></button>
                     </div>
+                    <div class="mwi-r-search">
+                        <input type="text" class="mwi-r-select" id="mwi-search" placeholder="🔍 Rechercher un joueur" autocomplete="off" spellcheck="false">
+                        <ul class="mwi-r-sugg" id="mwi-search-list" role="listbox"></ul>
+                    </div>
                     <button class="mwi-r-btn" id="mwi-btn-guilds" title="Comparer notre guilde aux autres (données lues par le scan)">Guildes</button>
                     <button class="mwi-r-btn" id="mwi-btn-copy" title="Copier les pseudos affichés">Copier</button>
                     <button class="mwi-r-btn" id="mwi-btn-clear" title="Vider la liste">Vider</button>
@@ -834,6 +838,7 @@
         renderChannels();
         setTimeout(renderChannels, 5000); // le chat du jeu se charge après le script
         document.getElementById('mwi-btn-copy').addEventListener('click', copyVisibleNames);
+        enableSearch();
         document.getElementById('mwi-btn-clear').addEventListener('click', () => {
             if (isProcessing || isScanning) return;
             recrues.clear();
@@ -852,6 +857,65 @@
     function openGameProfile(username) {
         if (!window.mwiSendProfileCommand(username)) setStatus('Champ de chat introuvable.', 'err');
     }
+    // Recherche de joueur : suggestions parmi les joueurs connus (début du pseudo d'abord),
+    // flèches pour naviguer, Entrée ou clic pour ouvrir la fiche. Un pseudo inconnu est ajouté à la liste.
+    function enableSearch() {
+        const input = document.getElementById('mwi-search'), list = document.getElementById('mwi-search-list');
+        let choix = [], actif = -1;
+        const fermer = () => { list.innerHTML = ''; list.classList.remove('open'); choix = []; actif = -1; };
+        const afficher = () => {
+            const q = input.value.trim().toLowerCase();
+            if (!q) return fermer();
+            const noms = Array.from(recrues.values());
+            choix = noms.filter(p => p.nom.toLowerCase().startsWith(q))
+                .concat(noms.filter(p => !p.nom.toLowerCase().startsWith(q) && p.nom.toLowerCase().includes(q)))
+                .slice(0, 12);
+            actif = choix.length ? 0 : -1;
+            const valide = /^[a-zA-Z0-9_-]{2,30}$/.test(input.value.trim());
+            list.innerHTML = choix.map((p, i) => {
+                const cat = playerCategory(p);
+                const tag = { free: 'Sans guilde', guild: p.guilde, fail: 'Illisible', pending: 'En attente' }[cat];
+                const debut = p.nom.toLowerCase().indexOf(q);
+                const nom = esc(p.nom.slice(0, debut)) + '<b>' + esc(p.nom.slice(debut, debut + q.length)) + '</b>' + esc(p.nom.slice(debut + q.length));
+                return `<li class="${i === actif ? 'actif' : ''}" data-i="${i}" role="option">${voyant(p)}<span class="nom">${nom}</span>${p.ironcow ? ' 🐄' : ''}<span class="mwi-r-sugg-tag ${cat}">${esc(tag)}</span></li>`;
+            }).join('') + (!choix.some(p => p.nom.toLowerCase() === q) && valide
+                ? `<li class="${choix.length ? '' : 'actif'}" data-new="1" role="option">➕ Ajouter « ${esc(input.value.trim())} » et voir sa fiche</li>` : '')
+                || '<li class="vide">Aucun joueur connu</li>';
+            list.classList.add('open');
+        };
+        const ouvrir = (li) => {
+            if (!li || li.classList.contains('vide')) return;
+            let nom;
+            if (li.dataset.new) {
+                nom = input.value.trim();
+                if (!recrues.has(nom)) recrues.set(nom, newRecruit(nom));
+            } else nom = choix[+li.dataset.i].nom;
+            input.value = '';
+            fermer();
+            input.blur();
+            openProfileView(nom);
+        };
+        input.addEventListener('input', afficher);
+        input.addEventListener('focus', afficher);
+        input.addEventListener('keydown', e => {
+            const items = Array.from(list.querySelectorAll('li:not(.vide)'));
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (!items.length) return;
+                actif = (Math.max(actif, items.findIndex(li => li.classList.contains('actif'))) + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length;
+                items.forEach((li, i) => li.classList.toggle('actif', i === actif));
+                items[actif].scrollIntoView({ block: 'nearest' });
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                ouvrir(list.querySelector('li.actif') || items[0]);
+            } else if (e.key === 'Escape') { input.value = ''; fermer(); input.blur(); }
+            e.stopPropagation(); // les touches ne partent pas vers le jeu
+        });
+        // mousedown plutôt que click : le choix est pris avant que le champ perde le focus
+        list.addEventListener('mousedown', e => { e.preventDefault(); ouvrir(e.target.closest('li')); });
+        input.addEventListener('blur', () => setTimeout(fermer, 100));
+    }
+
     function openProfileView(username) {
         currentProfile = username;
         currentSection = 0;
