@@ -345,6 +345,7 @@
         if (!modal) return;
         modal.dataset.mode = mode;
         saveUI({ mode });
+        if (currentProfile) renderProfileView(); // la répartition en colonnes dépend de la largeur
         const maxBtn = document.getElementById('mwi-btn-max');
         const minBtn = document.getElementById('mwi-btn-min');
         if (maxBtn) { maxBtn.textContent = mode === 'max' ? '❐' : '□'; maxBtn.title = mode === 'max' ? 'Restaurer' : 'Agrandir'; }
@@ -434,6 +435,7 @@
             st = null;
             modal.style.cursor = '';
             saveUI({ left: modal.style.left, top: modal.style.top, width: modal.style.width, height: modal.style.height });
+            if (currentProfile) renderProfileView();
         });
     }
 
@@ -604,13 +606,20 @@
     // Texte brut d'un onglet : regroupe chaque libellé avec la valeur qui le suit
     const isValue = (l) => /^[\d\s.,  /()%+-]+$|^\d|^(?:\d+y\s*)?\d+d$|^Floor/i.test(l);
     const isLabel = (l) => /(?:Level|Points|Floor|Age|Achievements)$/i.test(l);
-    const cleanLine = (l) => String(l).replace(/[​-‏⁠﻿]/g, '').trim();
+    const cleanLine = (l) => String(l).replace(/[\u200b-\u200f\u2060\ufeff]/g, '').trim();
     // Lignes "libellé ........ valeur" comme dans le jeu (avec une jauge pour les "x / y"),
     // précédées des textes isolés sous forme d'étiquettes (soloLabel : ce qu'ils représentent)
-    function linesToHtml(lignes, soloLabel) {
+    // groupRe : chaque ligne qui correspond ouvre un groupe, les suivantes en sont le détail (sanctuaires)
+    function linesToHtml(lignes, soloLabel, groupRe) {
         const rows = [], solos = [];
         lignes = lignes.map(cleanLine).filter(Boolean);
-        for (let i = 0; i < lignes.length; i++) {
+        for (let i = 0; groupRe && i < lignes.length; i++) {
+            const l = lignes[i], last = rows[rows.length - 1];
+            if (groupRe.test(l)) rows.push([l, '']);
+            else if (last) last[1] += (last[1] ? ' · ' : '') + l;
+            else solos.push(l);
+        }
+        for (let i = 0; !groupRe && i < lignes.length; i++) {
             const l = lignes[i], next = lignes[i + 1];
             if (/\bof$/i.test(l) && next) { rows.push([l, next]); i++; }  // "Officer of" + guilde
             else if (!isValue(l) && next !== undefined && (isValue(next) || isLabel(l))) { rows.push([l, next]); i++; }
@@ -647,12 +656,15 @@
             </dl>`;
         const sections = [{ titre: 'Résumé', html: resume }].concat(
             ((p.profil && p.profil.sections) || []).map(s => {
-                // Achievements : pas d'icônes, seulement le nom de chaque groupe et le nombre réalisé
-                const tuiles = /achievement|succ[èe]s/i.test(s.titre) ? [] : (s.tuiles || []);
+                // Achievements et sanctuaires : pas d'icônes, seulement les noms et leur valeur
+                const shrine = /shrine/i.test(s.titre);
+                const tuiles = shrine || /achievement|succ[èe]s/i.test(s.titre) ? [] : (s.tuiles || []);
+                // Dans l'équipement, un texte isolé est le nom d'un emplacement vide
+                const soloLabel = tuiles.length && /equip/i.test(s.titre) ? 'Vide :' : '';
                 return {
                     titre: s.titre,
                     html: tuiles.length || s.lignes.length
-                        ? (s.lignes.length ? linesToHtml(s.lignes, tuiles.length ? 'Vide :' : '') : '') + tilesToHtml(tuiles)
+                        ? (s.lignes.length ? linesToHtml(s.lignes, soloLabel, shrine ? /^shrine/i : null) : '') + tilesToHtml(tuiles)
                         : '<p class="mwi-r-pempty">Rien dans cet onglet.</p>'
                 };
             }));
@@ -663,10 +675,8 @@
 
         // Toutes les sections sont dans la page : le CSS n'affiche que l'onglet actif en petite fenêtre,
         // et les répertorie toutes côte à côte (sans onglets) quand la modale est large
-        // Très grande modale : Skills à gauche, Résumé puis Overview au milieu, Equipment à droite, le reste en dessous
         const keys = sections.map((s, i) => i === 0 ? 'resume' : /skill/i.test(s.titre) ? 'skills'
             : /overview/i.test(s.titre) ? 'overview' : /equip/i.test(s.titre) ? 'equipment' : 'autre');
-        const autres = keys.filter(k => k === 'autre').length;
         const scroll = view.querySelector('.mwi-r-pbody')?.scrollTop || 0;
         view.innerHTML = `
             <div class="mwi-r-phead">
@@ -678,11 +688,28 @@
                 `<button class="mwi-r-ptab${i === currentSection ? ' active' : ''}" data-action="section" data-index="${i}">${esc(s.titre)}</button>`).join('')}
             </div>
             <div class="mwi-r-pbody"><div class="mwi-r-psecs">${sections.map((s, i) =>
-                `<section class="mwi-r-psec${i === currentSection ? ' active' : ''}" data-key="${keys[i]}"${keys[i] === 'skills' ? ` style="grid-row: 1 / span ${2 + Math.ceil(autres / 2)}"` : ''}>
+                `<section class="mwi-r-psec${i === currentSection ? ' active' : ''}" data-key="${keys[i]}">
                     <h3 class="mwi-r-psec-title">${esc(s.titre)}</h3>
                     ${s.html}${i === 0 ? hint : ''}
                 </section>`).join('')}
             </div></div>`;
+
+        // Très grande modale : trois colonnes. Skills à gauche, Résumé puis Overview au milieu, Equipment à droite,
+        // et chaque autre section sous la colonne la moins haute (les colonnes sont sans effet en petite fenêtre)
+        const psecs = view.querySelector('.mwi-r-psecs');
+        const secs = Array.from(psecs.children);
+        const cols = [0, 1, 2].map(() => {
+            const c = document.createElement('div');
+            c.className = 'mwi-r-pcol';
+            return psecs.appendChild(c);
+        });
+        const place = { skills: 0, resume: 1, overview: 1, equipment: 2 };
+        secs.filter(s => s.dataset.key in place).forEach(s => cols[place[s.dataset.key]].appendChild(s));
+        secs.filter(s => !(s.dataset.key in place)).forEach((s, n) => {
+            const h = cols.map(c => c.offsetHeight);
+            const col = h.some(Boolean) ? cols[h.indexOf(Math.min(...h))] : cols[1 + n % 2];
+            col.appendChild(s);
+        });
         view.querySelector('.mwi-r-pbody').scrollTop = scroll;
     }
 
