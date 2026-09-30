@@ -1,7 +1,7 @@
 // Fichier généré par tools/build-console.js - ne pas modifier à la main.
 // Coller tout le contenu dans la console du jeu (F12) pour tester sans Tampermonkey.
-// Version : 46ebb86 - Leaderboard : repérage de la page par son panneau et ses onglets, diagnostics détaillés
-console.log('[Fabio RH] console-test :', "46ebb86 - Leaderboard : repérage de la page par son panneau et ses onglets, diagnostics détaillés");
+// Version : a16b402 - Fabio RH 1.13 : CSS épinglé sur la nouvelle version
+console.log('[Fabio RH] console-test :', "a16b402 - Fabio RH 1.13 : CSS épinglé sur la nouvelle version");
 (function() {
     'use strict';
 
