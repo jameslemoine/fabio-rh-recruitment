@@ -1,7 +1,7 @@
 // Fichier généré par tools/build-console.js - ne pas modifier à la main.
 // Coller tout le contenu dans la console du jeu (F12) pour tester sans Tampermonkey.
-// Version : 89c0789 - Fabio RH 1.14 : CSS épinglé sur la nouvelle version
-console.log('[Fabio RH] console-test :', "89c0789 - Fabio RH 1.14 : CSS épinglé sur la nouvelle version");
+// Version : 7fda7fb - Leaderboard : délai entre les classements et pause quand le jeu signale un spam
+console.log('[Fabio RH] console-test :', "7fda7fb - Leaderboard : délai entre les classements et pause quand le jeu signale un spam");
 (function() {
     'use strict';
 
@@ -279,6 +279,7 @@ console.log('[Fabio RH] console-test :', "89c0789 - Fabio RH 1.14 : CSS épingl�
             await sleep(50);
 
             // Puis le leaderboard : tous les joueurs classés dans chaque métier et skill de combat
+            const spamWatch = startSpamWatch();
             try {
                 const lb = await scanLeaderboard(scanLog);
                 countNew += lb.countNew;
@@ -286,6 +287,8 @@ console.log('[Fabio RH] console-test :', "89c0789 - Fabio RH 1.14 : CSS épingl�
                 guildCats = lb.guildCats || 0;
             } catch (e) {
                 log('Erreur pendant le scan du leaderboard :', e);
+            } finally {
+                spamWatch.disconnect();
             }
         } finally {
             isScanning = false;
@@ -349,9 +352,33 @@ console.log('[Fabio RH] console-test :', "89c0789 - Fabio RH 1.14 : CSS épingl�
         return last;
     }
 
+    // Respect de l'anti-spam du jeu sur le leaderboard : délai minimum entre deux clics, allongé
+    // si le jeu signale un spam, puis pause avant de recliquer le même classement.
+    const LB_INTERVALLE_MIN_MS = 1500;
+    let lbIntervalleMs = LB_INTERVALLE_MIN_MS, lbDernierClic = 0;
+
+    // Clique un onglet ou un classement du leaderboard puis attend son affichage (attendre) ;
+    // renvoie { res: résultat de attendre, spam: true si le jeu a refusé jusqu'au bout }
+    async function ouvrirClassement(el, prefix, attendre) {
+        for (let reprise = 0; ; reprise++) {
+            const wait = lbDernierClic + lbIntervalleMs - Date.now();
+            if (wait > 0) await sleep(wait);
+            const sentAt = lbDernierClic = Date.now();
+            el.click();
+            const res = await attendre();
+            if (spamDetectedAt < sentAt - 300) return { res, spam: false };
+            // Le jeu trouve qu'on va trop vite : on ralentit durablement
+            lbIntervalleMs = Math.min(lbIntervalleMs * 2, INTERVALLE_MAX_MS);
+            log(`Intervalle entre classements porté à ${lbIntervalleMs} ms.`);
+            if (reprise >= MAX_REPRISES_ANTISPAM) return { res, spam: true };
+            await pauseAntispam(prefix);
+        }
+    }
+
     // Se rend sur la page Leaderboard, parcourt chaque classement et ajoute les joueurs listés
     async function scanLeaderboard(scanLog) {
         let countNew = 0, classements = 0;
+        lbIntervalleMs = LB_INTERVALLE_MIN_MS;
         const pageAvant = document.querySelector('[class*="NavigationBar_active"]');
         let root = findLeaderboard();
         if (!root) {
@@ -376,8 +403,7 @@ console.log('[Fabio RH] console-test :', "89c0789 - Fabio RH 1.14 : CSS épingl�
                 continue;
             }
             let before = await waitLeaderboard(root, null);
-            tab.click();
-            await sleep(TAB_SWITCH_WAIT_MS);
+            await ouvrirClassement(tab, `Leaderboard ${mode} :`, () => sleep(TAB_SWITCH_WAIT_MS));
 
             // Liste des classements : le bloc qui contient à la fois "Milking" et "Foraging"
             const m = exactEls(root, 'Milking')[0], f = exactEls(root, 'Foraging')[0];
@@ -392,8 +418,10 @@ console.log('[Fabio RH] console-test :', "89c0789 - Fabio RH 1.14 : CSS épingl�
                 const el = tabEl(box, label);
                 if (!el) continue;
                 setStatus(`Leaderboard ${mode} : ${label}...`, '');
-                el.click();
-                before = await waitLeaderboard(root, before);
+                const avant = before;
+                const o = await ouvrirClassement(el, `Leaderboard ${mode} : ${label}.`, () => waitLeaderboard(root, avant));
+                before = o.res;
+                if (o.spam) { log(`Leaderboard : "${label}" (${mode}) bloqué par l'anti-spam, classement ignoré.`); continue; }
                 const joueurs = leaderboardPlayers(root);
                 if (!joueurs.length) { log(`Leaderboard : aucun joueur lu dans "${label}" (${mode}).`); continue; }
                 classements++;
@@ -452,8 +480,7 @@ console.log('[Fabio RH] console-test :', "89c0789 - Fabio RH 1.14 : CSS épingl�
     async function scanGuilds(root) {
         const tab = tabEl(root, 'Guilds');
         if (!tab) { log('Guildes : onglet "Guilds" introuvable.'); return 0; }
-        tab.click();
-        await sleep(TAB_SWITCH_WAIT_MS);
+        await ouvrirClassement(tab, 'Leaderboard guildes :', () => sleep(TAB_SWITCH_WAIT_MS));
         const a = exactEls(root, 'Buildings')[0], b = exactEls(root, 'Shrines')[0];
         const box = a && b && commonAncestor(a, b);
         if (!box) {
@@ -466,8 +493,10 @@ console.log('[Fabio RH] console-test :', "89c0789 - Fabio RH 1.14 : CSS épingl�
             const el = tabEl(box, label);
             if (!el) continue;
             setStatus(`Leaderboard guildes : ${label}...`, '');
-            el.click();
-            before = await waitTable(root, before);
+            const avant = before;
+            const o = await ouvrirClassement(el, `Leaderboard guildes : ${label}.`, () => waitTable(root, avant));
+            before = o.res;
+            if (o.spam) { log(`Guildes : "${label}" bloqué par l'anti-spam, classement ignoré.`); continue; }
             const t = readTable(root);
             if (!t || !t.rows.length) { log(`Guildes : aucune ligne lue dans "${label}".`, t ? t.headers : 'pas de tableau'); continue; }
             lus++;
