@@ -373,3 +373,9 @@
     border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,.5);
 }
 #mwi-radar-launcher:hover { border-color: var(--r-accent); background: var(--r-panel-2); }
+
+/* Voyant en ligne / hors ligne */
+.mwi-r-dot { display: inline-block; flex-shrink: 0; width: 8px; height: 8px; margin-right: 6px; vertical-align: middle; border-radius: 50%; background: var(--r-muted); opacity: .5; }
+.mwi-r-dot.on { background: var(--r-ok); opacity: 1; box-shadow: 0 0 6px var(--r-ok); }
+.mwi-r-dot.off { background: var(--r-err); opacity: .8; }
+.mwi-r-dot.masque { background: transparent; border: 1px solid var(--r-muted); }

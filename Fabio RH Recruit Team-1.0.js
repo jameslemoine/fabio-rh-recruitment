@@ -1064,7 +1064,7 @@
         view.innerHTML = `
             <div class="mwi-r-phead">
                 <button class="mwi-r-btn" data-action="back" title="Retour à la liste">← Retour</button>
-                <span class="mwi-r-pname" style="${nameStyle}">${esc(p.nom)}${p.ironcow ? ' <span class="mwi-r-iron">🐄</span>' : ''}</span>
+                <span class="mwi-r-pname" style="${nameStyle}">${voyant(p)}${esc(p.nom)}${p.ironcow ? ' <span class="mwi-r-iron">🐄</span>' : ''}</span>
                 <button class="mwi-r-profile" data-action="game" data-player="${esc(p.nom)}" title="Ouvrir le profil dans le jeu">Profile</button>
             </div>
             <div class="mwi-r-ptabs">${sections.map((s, i) =>
@@ -1211,6 +1211,14 @@
     // Stats principales en lignes <dt>/<dd> (fiche joueur et grandes cases)
     const statsDl = (p) => `<dt>🛡️ Total</dt><dd>${esc(p.stats.total)}</dd><dt>⚔️ Combat</dt><dd>${esc(p.stats.combat)}</dd><dt>⏳ Age</dt><dd>${esc(p.stats.age)}</dd>`;
 
+    // Voyant en ligne / hors ligne, d'après les données du dernier /profile (gris si inconnu ou masqué par le joueur)
+    function voyant(p) {
+        const c = (profilsBruts.get(p.nom) || {}).sharableCharacter;
+        const etat = !c ? 'inconnu' : c.hideOnlineStatus ? 'masque' : c.isOnline ? 'on' : 'off';
+        const titre = { on: 'En ligne', off: 'Hors ligne', masque: 'Statut masqué par le joueur', inconnu: 'Statut inconnu (profil pas encore vérifié)' }[etat];
+        return `<span class="mwi-r-dot ${etat}" title="${titre}"></span>`;
+    }
+
     function playerCategory(p) {
         if (!p.verifie) return 'pending';
         if (p.echec) return 'fail';
@@ -1290,7 +1298,7 @@
                     ${(cat === 'free' || cat === 'guild') ? statsDl(p) : ''}
                 </dl>`;
             return `<li class="mwi-r-card ${cat}" data-player="${esc(p.nom)}" title="Voir la fiche du joueur">
-                <div class="mwi-r-name"><span class="mwi-r-who"><span class="mwi-r-player" style="${nameStyle}">${esc(p.nom)}</span>${p.ironcow ? '<span class="mwi-r-iron" title="Ironcow">🐄</span>' : ''}</span><span class="mwi-r-right"><button class="mwi-r-profile" data-player="${esc(p.nom)}" title="Ouvrir le profil">Profile</button><span class="mwi-r-tag" title="${tag}">${tag}</span></span></div>
+                <div class="mwi-r-name"><span class="mwi-r-who">${voyant(p)}<span class="mwi-r-player" style="${nameStyle}">${esc(p.nom)}</span>${p.ironcow ? '<span class="mwi-r-iron" title="Ironcow">🐄</span>' : ''}</span><span class="mwi-r-right"><button class="mwi-r-profile" data-player="${esc(p.nom)}" title="Ouvrir le profil">Profile</button><span class="mwi-r-tag" title="${tag}">${tag}</span></span></div>
                 ${stats}
                 ${details}
             </li>`;
