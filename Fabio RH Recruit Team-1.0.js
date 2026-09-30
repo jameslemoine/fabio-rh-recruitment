@@ -1149,23 +1149,34 @@
         view.querySelector('.mwi-r-gbody').scrollTop = scroll;
     }
 
-    // Fiche joueur : la guilde du joueur est-elle mieux classée que la nôtre ? (d'après les classements de guildes lus)
+    // Fiche joueur : la guilde du joueur face à la nôtre, d'après les classements de guildes lus.
+    // Les classements où nous sommes devant sont mis en avant : ce sont les arguments pour contacter le joueur.
     function guildCompareHtml(nomGuilde) {
         if (!nomGuilde || nomGuilde === MA_GUILDE) return '';
         const titre = `<h4 class="mwi-r-sub">${esc(nomGuilde)} face à ${esc(MA_GUILDE)}</h4>`;
         if (!guildes.size) return titre + '<p class="mwi-r-pempty">Classements des guildes pas encore lus : clique sur « 1. Scanner ».</p>';
         const g = guildes.get(nomGuilde), moi = guildes.get(MA_GUILDE);
-        if (!g) return titre + '<p class="mwi-r-pempty">Guilde absente des classements lus : elle n\'est pas dans le haut du leaderboard.</p>';
+        if (!moi) return titre + `<p class="mwi-r-pempty">${esc(MA_GUILDE)} absente des classements lus : comparaison impossible.</p>`;
         const rang = (x, c) => x && x.stats[c] && isFinite(x.stats[c].rang) ? x.stats[c].rang : null;
-        const cats = Object.keys(g.stats).filter(c => rang(g, c) !== null);
-        const communs = cats.filter(c => rang(moi, c) !== null);
-        const mieux = communs.filter(c => rang(g, c) < rang(moi, c)).length;
-        const verdict = !communs.length ? ['', `${esc(MA_GUILDE)} absente des classements lus : comparaison impossible`]
-            : mieux * 2 > communs.length ? ['mieux', `Mieux classée que nous sur ${mieux} / ${communs.length} classements`]
-            : mieux * 2 === communs.length ? ['egal', `À égalité : mieux classée sur ${mieux} / ${communs.length} classements`]
-            : ['moins', `Moins bien classée que nous (devant sur ${mieux} / ${communs.length} classements)`];
-        return titre + `<p class="mwi-r-gverdict ${verdict[0]}">${verdict[1]}</p>` + rowsToHtml(cats.map(c =>
-            [c, `#${nb(rang(g, c))}${rang(moi, c) !== null ? ` · nous #${nb(rang(moi, c))}` : ''}`]));
+        const val = (x, c) => { const v = x.stats[c].valeurs, k = Object.keys(v)[0]; return k && v[k] ? ` (${v[k]})` : ''; };
+        const cats = Object.keys(moi.stats).filter(c => rang(moi, c) !== null);
+        const liste = (t, cls, lignes) => lignes.length ? `<p class="mwi-r-gverdict ${cls}">${t}</p>${rowsToHtml(lignes)}` : '';
+
+        if (!g) {
+            // Guilde hors des classements lus : nous sommes devant partout où nous figurons dans le haut du classement
+            const dernier = (c) => Math.max(0, ...Array.from(guildes.values()).filter(x => x !== moi && rang(x, c) !== null).map(x => rang(x, c)));
+            const devant = cats.filter(c => rang(moi, c) <= dernier(c));
+            return titre + '<p class="mwi-r-pempty">Guilde absente des classements lus : elle n\'est pas dans le haut du leaderboard.</p>'
+                + liste(`Nous sommes devant sur ${devant.length} classement(s)`, 'moins',
+                    devant.map(c => [c, `nous #${nb(rang(moi, c))}${val(moi, c)} · eux non classés`]));
+        }
+        const communs = cats.filter(c => rang(g, c) !== null);
+        const ligne = (c) => [c, `nous #${nb(rang(moi, c))}${val(moi, c)} · eux #${nb(rang(g, c))}${val(g, c)}`];
+        const devant = communs.filter(c => rang(moi, c) < rang(g, c)), derriere = communs.filter(c => rang(moi, c) > rang(g, c));
+        return titre
+            + (devant.length ? '' : '<p class="mwi-r-gverdict mieux">Nous ne sommes devant sur aucun classement</p>')
+            + liste(`Nous sommes devant sur ${devant.length} / ${communs.length} classements`, 'moins', devant.map(ligne))
+            + liste(`Ils sont devant sur ${derriere.length} / ${communs.length} classements`, 'mieux', derriere.map(ligne));
     }
 
     function tilesToHtml(tuiles, flow) {

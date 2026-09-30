@@ -337,6 +337,7 @@
 .mwi-r-gcard h4 { margin: 0 0 4px; font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--r-gold); }
 .mwi-r-grank { font-size: 24px; font-weight: 700; line-height: 1.2; color: var(--r-text); }
 .mwi-r-gcard .mwi-r-rows { grid-template-columns: 1fr; font-size: 12px; }
+.mwi-r-rows + .mwi-r-gverdict { margin-top: 10px; }
 .mwi-r-gverdict { margin: 0 0 6px; padding: 5px 10px; font-size: 12px; font-weight: 700; color: var(--r-muted); background: var(--r-bg); border-left: 3px solid var(--r-muted); border-radius: 4px; }
 .mwi-r-gverdict.mieux { color: var(--r-err); border-left-color: var(--r-err); }
 .mwi-r-gverdict.moins { color: var(--r-ok); border-left-color: var(--r-ok); }
