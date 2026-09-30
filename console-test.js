@@ -1,7 +1,7 @@
 // Fichier généré par tools/build-console.js - ne pas modifier à la main.
 // Coller tout le contenu dans la console du jeu (F12) pour tester sans Tampermonkey.
-// Version : 7fda7fb - Leaderboard : délai entre les classements et pause quand le jeu signale un spam
-console.log('[Fabio RH] console-test :', "7fda7fb - Leaderboard : délai entre les classements et pause quand le jeu signale un spam");
+// Version : 42ec0b9 - Fabio RH 1.15 : CSS épinglé sur la nouvelle version
+console.log('[Fabio RH] console-test :', "42ec0b9 - Fabio RH 1.15 : CSS épinglé sur la nouvelle version");
 (function() {
     'use strict';
 
