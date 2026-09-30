@@ -9,6 +9,7 @@ Dépôt : https://github.com/jameslemoine/fabio-rh-recruitment (compte GitHub `j
 - `Fabio RH Recruit Team-1.0.js` : le userscript. Il charge le CSS via `@resource FABIO_CSS` + `GM_getResourceText`.
 - `fabio-rh.css` : tout le style de la modale (DA rouge et noir, couleurs du logo).
 - `FabioLucci.png` : logo ; il est aussi intégré en base64 dans le script (`FABIO_ICON`).
+- `tools/test.js` : tests Node des fonctions pures du script (extraites par leur nom).
 - `tools/build-console.js` : génère `console-test.js` (script sans en-tête, CSS intégré) à coller dans la console du jeu.
 - `General.png`, `Member.png`, `Officer.png` : ne jamais les commiter.
 
@@ -19,7 +20,7 @@ Dépôt : https://github.com/jameslemoine/fabio-rh-recruitment (compte GitHub `j
 
 ## Après chaque modification (sur `dev`)
 
-1. `node --check "Fabio RH Recruit Team-1.0.js"`
+1. `node --check "Fabio RH Recruit Team-1.0.js"` puis `node tools/test.js` (tests des fonctions pures)
 2. Commit du script et du CSS.
 3. `node tools/build-console.js` puis `node --check console-test.js` : l'en-tête de `console-test.js` (et un `console.log` au lancement) reprend le hash et le titre de ce commit, pour savoir quelle version on teste.
 4. Commit de `console-test.js` seul, puis push sur `origin dev`.

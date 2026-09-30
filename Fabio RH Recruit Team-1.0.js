@@ -24,18 +24,16 @@
     const ATTENTE_PROFIL_MS = 1500; // délai MAX : on passe au suivant dès que le profil est lu
     const POLL_MS = 40;
 
-    // Respect de l'anti-spam du jeu : délai minimum entre deux /profile, allongé automatiquement
-    // si le jeu signale un spam, puis pause avant de retenter le même joueur.
+    // Respect de l'anti-spam du jeu (voir creerLimiteur) : délai minimum entre deux commandes, allongé
+    // automatiquement si le jeu signale un spam, puis pause avant de retenter la même commande.
     const INTERVALLE_MIN_MS = 1500;
     const INTERVALLE_MAX_MS = 8000;
     const PAUSE_ANTISPAM_MS = 15000;
     const MAX_REPRISES_ANTISPAM = 3;
     const ANTISPAM_RE = /spam|too (?:fast|quickly|many|frequent)|slow down|rate.?limit|trop (?:vite|rapide)/i;
-    let intervalleMs = INTERVALLE_MIN_MS;
-    let lastCommandAt = 0;
     let spamDetectedAt = 0;
     const STORAGE_KEY = 'mwi-radar-ui';
-    const TAB_SWITCH_WAIT_MS = 200; // Ajusté à 350ms pour laisser le temps au DOM de charger l'historique
+    const TAB_SWITCH_WAIT_MS = 200; // laisse le temps au DOM de charger l'historique du canal
 
     const recrues = new Map();
     const MA_GUILDE = 'Fabio Lucci';
@@ -352,9 +350,8 @@
             .filter(n => n && n !== 'Name').map(username => ({ username, ironcow: false, color: '' }));
     }
 
-    // Attend que le classement affiché change puis se stabilise (le jeu le charge après le clic)
-    async function waitLeaderboard(root, before) {
-        const snap = () => leaderboardPlayers(root).map(c => c.username).join('|');
+    // Attend que l'instantané (snap) change par rapport à before puis se stabilise (le jeu charge après le clic)
+    async function waitStable(snap, before) {
         let last = snap();
         for (let k = 0; k < 30 && last === before; k++) { await sleep(POLL_MS); last = snap(); }
         for (let k = 0; k < 10; k++) {
@@ -365,34 +362,16 @@
         }
         return last;
     }
+    const waitLeaderboard = (root, before) => waitStable(() => leaderboardPlayers(root).map(c => c.username).join('|'), before);
 
-    // Respect de l'anti-spam du jeu sur le leaderboard : délai minimum entre deux clics, allongé
-    // si le jeu signale un spam, puis pause avant de recliquer le même classement.
-    const LB_INTERVALLE_MIN_MS = 1500;
-    let lbIntervalleMs = LB_INTERVALLE_MIN_MS, lbDernierClic = 0;
-
-    // Clique un onglet ou un classement du leaderboard puis attend son affichage (attendre) ;
-    // renvoie { res: résultat de attendre, spam: true si le jeu a refusé jusqu'au bout }
-    async function ouvrirClassement(el, prefix, attendre) {
-        for (let reprise = 0; ; reprise++) {
-            const wait = lbDernierClic + lbIntervalleMs - Date.now();
-            if (wait > 0) await sleep(wait);
-            const sentAt = lbDernierClic = Date.now();
-            el.click();
-            const res = await attendre();
-            if (spamDetectedAt < sentAt - 300) return { res, spam: false };
-            // Le jeu trouve qu'on va trop vite : on ralentit durablement
-            lbIntervalleMs = Math.min(lbIntervalleMs * 2, INTERVALLE_MAX_MS);
-            log(`Intervalle entre classements porté à ${lbIntervalleMs} ms.`);
-            if (reprise >= MAX_REPRISES_ANTISPAM) return { res, spam: true };
-            await pauseAntispam(prefix);
-        }
-    }
+    // Clics du leaderboard soumis à l'anti-spam du jeu
+    const limiteurClassements = creerLimiteur('classements');
+    // Clique un onglet ou un classement du leaderboard puis attend son affichage (attendre)
+    const ouvrirClassement = (el, prefix, attendre) => limiteurClassements.executer(() => el.click(), attendre, prefix);
 
     // Se rend sur la page Leaderboard, parcourt chaque classement et ajoute les joueurs listés
     async function scanLeaderboard(scanLog) {
         let countNew = 0, classements = 0;
-        lbIntervalleMs = LB_INTERVALLE_MIN_MS;
         const pageAvant = document.querySelector('[class*="NavigationBar_active"]');
         let root = findLeaderboard();
         if (!root) {
@@ -455,12 +434,14 @@
         return { countNew, classements, guildCats };
     }
 
-    // Nombre lu dans une cellule du jeu : "10 054 281", "1,2M", "513"
+    // Nombre lu dans une cellule du jeu : "10 054 281", "1,2M", "513", "12.5"
+    // Un seul "." ou "," suivi de 1 ou 2 chiffres est une décimale, sinon un séparateur de milliers
     const num = (v) => {
         const m = String(v).replace(/\s/g, '').match(/^(-?\d[\d.,]*)([KMBT])?/i);
         if (!m) return NaN;
-        const mult = { K: 1e3, M: 1e6, B: 1e9, T: 1e12 }[(m[2] || '').toUpperCase()];
-        return mult ? parseFloat(m[1].replace(',', '.')) * mult : parseFloat(m[1].replace(/[.,]/g, ''));
+        const mult = { K: 1e3, M: 1e6, B: 1e9, T: 1e12 }[(m[2] || '').toUpperCase()] || 1;
+        const decimal = mult > 1 || /^-?\d+[.,]\d{1,2}$/.test(m[1]);
+        return parseFloat(decimal ? m[1].replace(',', '.') : m[1].replace(/[.,]/g, '')) * mult;
     };
 
     // Tableau affiché sur la page : en-têtes nettoyés (sans flèches de tri) et lignes de cellules
@@ -476,18 +457,10 @@
         };
     }
 
-    async function waitTable(root, before) {
-        const snap = () => { const t = readTable(root); return t ? t.rows.slice(0, 6).map(r => r.join(',')).join('|') : ''; };
-        let last = snap();
-        for (let k = 0; k < 30 && last === before; k++) { await sleep(POLL_MS); last = snap(); }
-        for (let k = 0; k < 10; k++) {
-            await sleep(80);
-            const now = snap();
-            if (now === last && now) break;
-            last = now;
-        }
-        return last;
-    }
+    const waitTable = (root, before) => waitStable(() => {
+        const t = readTable(root);
+        return t ? t.rows.slice(0, 6).map(r => r.join(',')).join('|') : '';
+    }, before);
 
     // Lit chaque classement de l'onglet "Guilds" (Level, Buildings, Shrines...) : rang et colonnes de chaque guilde.
     // Le jeu affiche notre propre guilde en première ligne avec son vrai rang, même hors du haut du classement.
@@ -610,12 +583,12 @@
         if (maxBtn) { maxBtn.textContent = mode === 'max' ? '❐' : '□'; maxBtn.title = mode === 'max' ? 'Restaurer' : 'Agrandir'; }
         if (minBtn) { minBtn.textContent = mode === 'min' ? '▢' : '–'; minBtn.title = mode === 'min' ? 'Développer' : 'Réduire'; }
     }
-    function setVisible(visible) {
+    function setVisible(show) {
         const modal = document.getElementById('mwi-tracker-modal');
         const launcher = document.getElementById('mwi-radar-launcher');
-        if (modal) modal.style.display = visible ? 'flex' : 'none';
-        if (launcher) launcher.style.display = visible ? 'none' : 'flex';
-        saveUI({ visible });
+        if (modal) modal.style.display = show ? 'flex' : 'none';
+        if (launcher) launcher.style.display = show ? 'none' : 'flex';
+        saveUI({ visible: show });
     }
 
     function enableDrag(modal, handle) {
@@ -1065,9 +1038,7 @@
                 <dt>Statut</dt><dd class="mwi-r-pstat ${cat}">${statut}</dd>
                 <dt>Mode</dt><dd>${p.ironcow ? '🐄 Ironcow' : 'Standard'}</dd>
                 ${cat === 'guild' ? `<dt>Guilde</dt><dd>${esc(p.guilde)}</dd><dt>Rang</dt><dd>${esc(p.rang)}</dd>` : ''}
-                ${p.profil || brut ? '' : `<dt>🛡️ Total</dt><dd>${esc(p.stats.total)}</dd>
-                <dt>⚔️ Combat</dt><dd>${esc(p.stats.combat)}</dd>
-                <dt>⏳ Age</dt><dd>${esc(p.stats.age)}</dd>`}
+                ${p.profil || brut ? '' : statsDl(p)}
             </dl>${guildCompareHtml((brut && brut.guildName) || (cat === 'guild' ? p.guilde : ''))}`;
         const dom = (p.profil && p.profil.sections) || [];
         const sections = [{ titre: 'Résumé', html: resume }].concat(
@@ -1117,9 +1088,13 @@
         view.querySelector('.mwi-r-pbody').scrollTop = scroll;
     }
 
-    // flow : cases à la suite dans l'ordre du jeu, sans reprendre sa grille (autant par ligne que la largeur le permet)
     // --- Comparaison des guildes ---
     let guildSort = null; // classement utilisé pour trier le tableau
+    // Rang d'une guilde dans un classement (null si absente)
+    const guildRang = (g, c) => g && g.stats[c] && isFinite(g.stats[c].rang) ? g.stats[c].rang : null;
+    // Valeur principale d'un classement : la première colonne après le nom (Level, Points...)
+    const guildCol = (c) => { const g = Array.from(guildes.values()).find(x => x.stats[c]); return g ? Object.keys(g.stats[c].valeurs)[0] || '' : ''; };
+    const guildVal = (g, c) => g && g.stats[c] ? (g.stats[c].valeurs[guildCol(c)] || '') : '';
     function renderGuildView() {
         const view = document.getElementById('mwi-guild-view');
         if (!view) return;
@@ -1134,10 +1109,7 @@
             return;
         }
         if (!cats.includes(guildSort)) guildSort = cats[0];
-        // Valeur principale d'un classement : la première colonne après le nom (Level, Points...)
-        const colOf = (c) => { const g = Array.from(guildes.values()).find(x => x.stats[c]); return Object.keys(g.stats[c].valeurs)[0] || ''; };
-        const val = (g, c) => g && g.stats[c] ? (g.stats[c].valeurs[colOf(c)] || '') : '';
-        const rang = (g, c) => g && g.stats[c] && isFinite(g.stats[c].rang) ? g.stats[c].rang : null;
+        const colOf = guildCol, val = guildVal, rang = guildRang;
         const moi = guildes.get(MA_GUILDE);
 
         // Une carte par classement : notre rang, notre valeur, et l'écart avec le premier et la guilde juste devant
@@ -1186,8 +1158,8 @@
         if (!guildes.size) return titre + '<p class="mwi-r-pempty">Classements des guildes pas encore lus : clique sur « 1. Scanner ».</p>';
         const g = guildes.get(nomGuilde), moi = guildes.get(MA_GUILDE);
         if (!moi) return titre + `<p class="mwi-r-pempty">${esc(MA_GUILDE)} absente des classements lus : comparaison impossible.</p>`;
-        const rang = (x, c) => x && x.stats[c] && isFinite(x.stats[c].rang) ? x.stats[c].rang : null;
-        const val = (x, c) => { const v = x.stats[c].valeurs, k = Object.keys(v)[0]; return k && v[k] ? ` (${v[k]})` : ''; };
+        const rang = guildRang;
+        const val = (x, c) => { const v = guildVal(x, c); return v ? ` (${v})` : ''; };
         const cats = Object.keys(moi.stats).filter(c => rang(moi, c) !== null);
         const liste = (t, cls, lignes) => lignes.length ? `<p class="mwi-r-gverdict ${cls}">${t}</p>${rowsToHtml(lignes)}` : '';
 
@@ -1208,6 +1180,7 @@
             + liste(`Ils sont devant sur ${derriere.length} / ${communs.length} classements`, 'mieux', derriere.map(ligne));
     }
 
+    // flow : cases à la suite dans l'ordre du jeu, sans reprendre sa grille (autant par ligne que la largeur le permet)
     function tilesToHtml(tuiles, flow) {
         if (!tuiles.length) return '';
         const located = tuiles.every(t => t.col !== undefined);
@@ -1226,6 +1199,9 @@
             </div>`;
         }).join('')}</div>`;
     }
+
+    // Stats principales en lignes <dt>/<dd> (fiche joueur et grandes cases)
+    const statsDl = (p) => `<dt>🛡️ Total</dt><dd>${esc(p.stats.total)}</dd><dt>⚔️ Combat</dt><dd>${esc(p.stats.combat)}</dd><dt>⏳ Age</dt><dd>${esc(p.stats.age)}</dd>`;
 
     function playerCategory(p) {
         if (!p.verifie) return 'pending';
@@ -1303,7 +1279,7 @@
                     <dt>Statut</dt><dd>${tag}</dd>
                     <dt>Mode</dt><dd>${p.ironcow ? '🐄 Ironcow' : 'Standard'}</dd>
                     ${cat === 'guild' ? `<dt>Guilde</dt><dd>${esc(p.guilde)}</dd><dt>Rang</dt><dd>${esc(p.rang)}</dd>` : ''}
-                    ${(cat === 'free' || cat === 'guild') ? `<dt>🛡️ Total</dt><dd>${esc(p.stats.total)}</dd><dt>⚔️ Combat</dt><dd>${esc(p.stats.combat)}</dd><dt>⏳ Age</dt><dd>${esc(p.stats.age)}</dd>` : ''}
+                    ${(cat === 'free' || cat === 'guild') ? statsDl(p) : ''}
                 </dl>`;
             return `<li class="mwi-r-card ${cat}" data-player="${esc(p.nom)}" title="Voir la fiche du joueur">
                 <div class="mwi-r-name"><span class="mwi-r-who"><span class="mwi-r-player" style="${nameStyle}">${esc(p.nom)}</span>${p.ironcow ? '<span class="mwi-r-iron" title="Ironcow">🐄</span>' : ''}</span><span class="mwi-r-right"><button class="mwi-r-profile" data-player="${esc(p.nom)}" title="Ouvrir le profil">Profile</button><span class="mwi-r-tag" title="${tag}">${tag}</span></span></div>
@@ -1352,11 +1328,11 @@
                 const t = el.innerText || '';
                 if (t.length > 3000) break;
                 if (t.includes('Combat Level') && hasExactName(el, needle, label)) {
-                    return { el, label, labels: labels.length };
+                    return { el, label };
                 }
             }
         }
-        return { el: null, labels: labels.length };
+        return { el: null };
     }
 
     // Le pseudo doit être le texte exact d'un élément situé avant "Total Level" (titre du profil),
@@ -1370,7 +1346,8 @@
     }
 
     function parseProfile(text) {
-        const guildMatch = text.match(/^\s*([A-Za-z]+) of\s+(.+)$/m);
+        // Rangs de guilde connus uniquement : "Shrine of ..." ou autre "X of Y" ne sont pas une guilde
+        const guildMatch = text.match(/^\s*(Leader|General|Officer|Member) of\s+(.+)$/m);
         const hasGuild = !!guildMatch;
 
         const grabNumber = (label) => {
@@ -1509,7 +1486,6 @@
 
     const textLines = (el) => (el.innerText || '').split('\n').map(l => l.trim()).filter(Boolean);
 
-    // Clique chaque onglet, attend que le contenu change puis garde uniquement les lignes propres à l'onglet
     // Plus petit bloc (hors barre d'onglets) contenant la première et la dernière ligne qui ont changé
     function findPanelByLines(root, tablist, changed) {
         if (!changed.length) return null;
@@ -1656,15 +1632,36 @@
                 }
             }
         });
-        obs.observe(document.body, { childList: true, subtree: true, characterData: false });
+        obs.observe(document.body, { childList: true, subtree: true });
         return obs;
     }
 
-    async function waitForSlot() {
-        const wait = lastCommandAt + intervalleMs - Date.now();
-        if (wait > 0) await sleep(wait);
-        lastCommandAt = Date.now();
+    // Limiteur anti-spam : l'intervalle doublé après un spam reste valable toute la session.
+    // executer(action, attendre, prefix, reussi) : action() envoie la commande (false = impossible),
+    // attendre() renvoie le résultat ; on retente tant que le jeu signale un spam et que reussi(res) est faux.
+    // Renvoie { res, spam: true si le jeu a refusé jusqu'au bout, impossible: true si action() a échoué }
+    function creerLimiteur(nom) {
+        let intervalle = INTERVALLE_MIN_MS, dernier = 0;
+        return {
+            async executer(action, attendre, prefix, reussi = () => false) {
+                for (let reprise = 0; ; reprise++) {
+                    const wait = dernier + intervalle - Date.now();
+                    if (wait > 0) await sleep(wait);
+                    const sentAt = dernier = Date.now();
+                    if (action() === false) return { res: undefined, spam: false, impossible: true };
+                    const res = await attendre();
+                    if (spamDetectedAt < sentAt - 300) return { res, spam: false };
+                    // Le jeu trouve qu'on va trop vite : on ralentit durablement
+                    intervalle = Math.min(intervalle * 2, INTERVALLE_MAX_MS);
+                    log(`Intervalle entre ${nom} porté à ${intervalle} ms.`);
+                    if (reussi(res)) return { res, spam: false };
+                    if (reprise >= MAX_REPRISES_ANTISPAM) return { res, spam: true };
+                    await pauseAntispam(prefix);
+                }
+            }
+        };
     }
+    const limiteurProfils = creerLimiteur('profils');
 
     async function pauseAntispam(prefix) {
         for (let left = PAUSE_ANTISPAM_MS; left > 0; left -= 1000) {
@@ -1708,25 +1705,12 @@
                 index++;
                 const prefix = `${index}/${toVerify}`;
 
-                let ok = false;
-                for (let reprise = 0; ; reprise++) {
-                    await waitForSlot();
+                const o = await limiteurProfils.executer(() => {
                     setStatus(`Vérification ${prefix} : ${username}...`, '');
-                    const sentAt = Date.now();
-                    if (!window.mwiSendProfileCommand(username)) break;
-                    ok = await analyzeProfile(username);
+                    return window.mwiSendProfileCommand(username);
+                }, () => analyzeProfile(username), prefix, ok => ok);
 
-                    const spamHit = spamDetectedAt >= sentAt - 300;
-                    if (spamHit) {
-                        // Le jeu trouve qu'on va trop vite : on ralentit durablement
-                        intervalleMs = Math.min(intervalleMs * 2, INTERVALLE_MAX_MS);
-                        log(`Intervalle entre profils porté à ${intervalleMs} ms.`);
-                    }
-                    if (ok || !spamHit || reprise >= MAX_REPRISES_ANTISPAM) break;
-                    await pauseAntispam(prefix);
-                }
-
-                if (!ok) {
+                if (!o.res) {
                     data.verifie = true;
                     data.echec = true;
                 }
