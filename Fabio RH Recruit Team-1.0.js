@@ -261,10 +261,6 @@
             setStatus('Aucun onglet de chat trouvé.', 'warn');
             return;
         }
-        if (tabs.length === 0) {
-            setStatus('Aucun canal sélectionné.', 'warn');
-            return;
-        }
 
         isScanning = true;
         if (scanBtn) { scanBtn.disabled = true; scanBtn.textContent = 'Scan en cours...'; }
@@ -273,6 +269,7 @@
         const activeTab = allTabs.find(t => t.getAttribute('aria-selected') === 'true') || tabs[0];
         let countNew = 0;
         let totalMessages = 0;
+        let leaderboard = 0;
         const scanLog = [];
 
         try {
@@ -290,19 +287,137 @@
                 countNew += result.countNew;
                 totalMessages += result.total;
             }
-            activeTab.click();
+            if (activeTab) activeTab.click();
             await sleep(50);
+
+            // Puis le leaderboard : tous les joueurs classés dans chaque métier et skill de combat
+            try {
+                const lb = await scanLeaderboard(scanLog);
+                countNew += lb.countNew;
+                leaderboard = lb.classements;
+            } catch (e) {
+                log('Erreur pendant le scan du leaderboard :', e);
+            }
         } finally {
             isScanning = false;
-            if (scanBtn) { scanBtn.disabled = false; scanBtn.textContent = '1. Scanner Chat'; }
+            if (scanBtn) { scanBtn.disabled = false; scanBtn.textContent = '1. Scanner'; }
             if (processBtn) processBtn.disabled = false;
         }
 
         log(`${countNew} nouveaux joueurs mis en file d'attente (${recrues.size} au total).`);
         console.table(scanLog.filter(e => e.resultat.startsWith('ignoré')));
-        setStatus(`Scan terminé (${tabs.length} onglets) : ${countNew} nouveau(x) joueur(s).`, 'ok');
+        setStatus(`Scan terminé (${tabs.length} onglets de chat, ${leaderboard} classements) : ${countNew} nouveau(x) joueur(s).`,
+            leaderboard ? 'ok' : 'warn');
         updateModalUI();
     };
+
+    // ---------------------------------------------------------------
+    // 1b. Scanner le leaderboard : les joueurs classés de chaque métier et skill de combat
+    // ---------------------------------------------------------------
+    const horsJeu = (e) => e.closest('#mwi-tracker-modal') || e.closest('[class*="NavigationBar_"]') || e.closest('[class*="Chat_"]');
+    const txt = (e) => (e.textContent || '').trim();
+    // Éléments visibles dont le texte est exactement celui demandé : le plus profond de chaque branche
+    // (un bouton du jeu contient souvent son texte + un élément vide pour l'effet de clic)
+    const exactEls = (root, text) => Array.from(root.querySelectorAll('*')).filter(e =>
+        txt(e) === text && !Array.from(e.children).some(c => txt(c) === text) && e.offsetParent !== null && !horsJeu(e));
+    const commonAncestor = (a, b) => { let el = a; while (el && !el.contains(b)) el = el.parentElement; return el; };
+
+    const visible = (e) => e.offsetParent !== null && !horsJeu(e);
+    // Onglet ou bouton du jeu portant exactement ce texte
+    const tabEl = (root, text) => Array.from(root.querySelectorAll('[role="tab"], button')).find(e => txt(e) === text && visible(e))
+        || exactEls(root, text)[0];
+
+    // Page Leaderboard du jeu (les pages non affichées restent dans le document, masquées) :
+    // le panneau nommé par le jeu, sinon le bloc autour de l'onglet "Guilds" qui contient aussi le tableau
+    function findLeaderboard() {
+        const panel = Array.from(document.querySelectorAll('[class*="LeaderboardPanel"]')).find(visible);
+        if (panel) return panel;
+        let el = tabEl(document.body, 'Guilds');
+        while (el && el !== document.body && !/Rank[\s\S]*Name/.test(el.textContent)) el = el.parentElement;
+        return el && el !== document.body ? el : null;
+    }
+
+    // Joueurs du classement affiché : composant CharacterName du jeu, sinon 2e colonne du tableau
+    function leaderboardPlayers(root) {
+        const els = Array.from(root.querySelectorAll('[class*="CharacterName_name"][data-name]'));
+        if (els.length) return els.map(readCharacterName);
+        return Array.from(root.querySelectorAll('tr'), tr => tr.children[1] ? txt(tr.children[1]) : '')
+            .filter(n => n && n !== 'Name').map(username => ({ username, ironcow: false, color: '' }));
+    }
+
+    // Attend que le classement affiché change puis se stabilise (le jeu le charge après le clic)
+    async function waitLeaderboard(root, before) {
+        const snap = () => leaderboardPlayers(root).map(c => c.username).join('|');
+        let last = snap();
+        for (let k = 0; k < 30 && last === before; k++) { await sleep(POLL_MS); last = snap(); }
+        for (let k = 0; k < 10; k++) {
+            await sleep(80);
+            const now = snap();
+            if (now === last && now) break;
+            last = now;
+        }
+        return last;
+    }
+
+    // Se rend sur la page Leaderboard, parcourt chaque classement et ajoute les joueurs listés
+    async function scanLeaderboard(scanLog) {
+        let countNew = 0, classements = 0;
+        const pageAvant = document.querySelector('[class*="NavigationBar_active"]');
+        let root = findLeaderboard();
+        if (!root) {
+            const nav = document.querySelector('svg[aria-label="navigationBar.leaderboard"]');
+            if (!nav) { log('Leaderboard : lien introuvable dans le menu du jeu.'); return { countNew, classements }; }
+            (nav.closest('[class*="NavigationBar_navigationLink"]') || nav.parentElement).click();
+            for (let k = 0; k < 75 && !root; k++) { await sleep(POLL_MS); root = findLeaderboard(); }
+        }
+        if (!root) {
+            log('Leaderboard : page introuvable après ouverture. Éléments "Leaderboard" du document :',
+                Array.from(document.querySelectorAll('[class*="Leaderboard"]'), e => `${e.className}${visible(e) ? '' : ' (masqué)'}`).slice(0, 12));
+            return { countNew, classements };
+        }
+        log('Leaderboard : page trouvée', root.className);
+
+        // Onglets du jeu selon le filtre de mode (jamais l'onglet des guildes)
+        const modes = currentMode === 'standard' ? ['Standard'] : currentMode === 'ironcow' ? ['Ironcow'] : ['Standard', 'Ironcow'];
+        for (const mode of modes) {
+            const tab = tabEl(root, mode);
+            if (!tab) {
+                log(`Leaderboard : onglet "${mode}" introuvable. Onglets vus :`, Array.from(root.querySelectorAll('[role="tab"], button'), txt));
+                continue;
+            }
+            let before = await waitLeaderboard(root, null);
+            tab.click();
+            await sleep(TAB_SWITCH_WAIT_MS);
+
+            // Liste des classements : le bloc qui contient à la fois "Milking" et "Foraging"
+            const m = exactEls(root, 'Milking')[0], f = exactEls(root, 'Foraging')[0];
+            const box = m && f && commonAncestor(m, f);
+            if (!box) {
+                log(`Leaderboard : liste des classements introuvable (${mode}). Onglets vus :`, Array.from(root.querySelectorAll('[role="tab"], button'), txt));
+                continue;
+            }
+            const labels = Array.from(box.children, txt).filter(Boolean);
+
+            for (const label of labels) {
+                const el = tabEl(box, label);
+                if (!el) continue;
+                setStatus(`Leaderboard ${mode} : ${label}...`, '');
+                el.click();
+                before = await waitLeaderboard(root, before);
+                const joueurs = leaderboardPlayers(root);
+                if (!joueurs.length) { log(`Leaderboard : aucun joueur lu dans "${label}" (${mode}).`); continue; }
+                classements++;
+                joueurs.forEach(c => {
+                    if (!/^[a-zA-Z0-9_-]{2,30}$/.test(c.username || '')) return;
+                    if (upsertRecruit(c.username, c.color, c.ironcow || mode === 'Ironcow', scanLog, `leaderboard ${label}`, '')) countNew++;
+                });
+                updateModalUI();
+            }
+        }
+        // Retour à la page du jeu affichée avant le scan
+        if (pageAvant && pageAvant.isConnected && !pageAvant.querySelector('svg[aria-label="navigationBar.leaderboard"]')) pageAvant.click();
+        return { countNew, classements };
+    }
 
     function newRecruit(nom, color = '') {
         return {
@@ -528,7 +643,7 @@
                 <div class="mwi-r-pview" id="mwi-profile-view"></div>
                 <div class="mwi-r-progress" id="mwi-progress"><div id="mwi-progress-bar"></div></div>
                 <div class="mwi-r-actions">
-                    <button class="mwi-r-btn" id="mwi-btn-scan">1. Scanner Chat</button>
+                    <button class="mwi-r-btn" id="mwi-btn-scan" title="Scanne le chat puis le leaderboard du jeu">1. Scanner</button>
                     <button class="mwi-r-btn primary" id="mwi-btn-process">2. Vérifier Profils</button>
                 </div>
                 <div class="mwi-r-foot">
