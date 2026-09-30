@@ -1,7 +1,7 @@
 // Fichier généré par tools/build-console.js - ne pas modifier à la main.
 // Coller tout le contenu dans la console du jeu (F12) pour tester sans Tampermonkey.
-// Version : 9d743d4 - Fiche joueur : lit les données brutes du profil (message profile_shared), ajoute le build de combat
-console.log('[Fabio RH] console-test :', "9d743d4 - Fiche joueur : lit les données brutes du profil (message profile_shared), ajoute le build de combat");
+// Version : ee0df80 - Fabio RH 1.12 : CSS épinglé sur la nouvelle version
+console.log('[Fabio RH] console-test :', "ee0df80 - Fabio RH 1.12 : CSS épinglé sur la nouvelle version");
 (function() {
     'use strict';
 
