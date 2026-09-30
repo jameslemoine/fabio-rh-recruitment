@@ -1,7 +1,7 @@
 // Fichier généré par tools/build-console.js - ne pas modifier à la main.
 // Coller tout le contenu dans la console du jeu (F12) pour tester sans Tampermonkey.
-// Version : 68cf50b - Leaderboard : lecture passive des classements ouverts dans le jeu, avec suivi dans la modale (+ modifications non commitées)
-console.log('[Fabio RH] console-test :', "68cf50b - Leaderboard : lecture passive des classements ouverts dans le jeu, avec suivi dans la modale (+ modifications non commitées)");
+// Version : 8611c5d - Fiche joueur : met en avant les classements de guildes où Fabio Lucci est devant
+console.log('[Fabio RH] console-test :', "8611c5d - Fiche joueur : met en avant les classements de guildes où Fabio Lucci est devant");
 (function() {
     'use strict';
 
@@ -45,32 +45,28 @@ console.log('[Fabio RH] console-test :', "68cf50b - Leaderboard : lecture passiv
     const page = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
     const toPage = (fn) => typeof exportFunction === 'function' ? exportFunction(fn, page) : fn;
     try {
-        page.__fabioOnMessage = toPage((json) => {
+        page.__fabioOnProfile = toPage((json) => {
             try {
                 const msg = JSON.parse(json);
-                if (msg.type === 'profile_shared') {
-                    const nom = msg.profile && msg.profile.sharableCharacter && msg.profile.sharableCharacter.name;
-                    if (nom) profilsBruts.set(nom, msg.profile);
-                } else if (msg.type === 'leaderboard_updated') {
-                    onLeaderboard(msg);
-                }
-            } catch (e) { log('Message du jeu illisible :', e); }
+                const nom = msg.type === 'profile_shared' && msg.profile && msg.profile.sharableCharacter && msg.profile.sharableCharacter.name;
+                if (nom) profilsBruts.set(nom, msg.profile);
+            } catch (e) { }
         });
-        // Un seul crochet par page, même si le script est relancé (console) : il appelle le dernier __fabioOnMessage
-        if (!page.__fabioHook2) {
+        // Un seul crochet par page, même si le script est relancé (console) : il appelle le dernier __fabioOnProfile
+        if (!page.__fabioHook) {
             const desc = Object.getOwnPropertyDescriptor(page.MessageEvent.prototype, 'data');
             const get = toPage(function() {
                 const d = desc.get.call(this);
-                if (typeof d === 'string' && (d.includes('"profile_shared"') || d.includes('"leaderboard_updated"'))) {
-                    try { page.__fabioOnMessage(d); } catch (e) { }
+                if (typeof d === 'string' && d.includes('"profile_shared"')) {
+                    try { page.__fabioOnProfile(d); } catch (e) { }
                 }
                 return d;
             });
             Object.defineProperty(page.MessageEvent.prototype, 'data', { configurable: true, enumerable: desc.enumerable, get });
-            page.__fabioHook2 = true;
+            page.__fabioHook = true;
         }
     } catch (e) {
-        log('Écoute des messages du jeu impossible :', e);
+        log('Écoute des profils impossible, lecture à l\'écran uniquement :', e);
     }
 
     // ---------------------------------------------------------------
@@ -261,6 +257,7 @@ console.log('[Fabio RH] console-test :', "68cf50b - Leaderboard : lecture passiv
         const activeTab = allTabs.find(t => t.getAttribute('aria-selected') === 'true') || tabs[0];
         let countNew = 0;
         let totalMessages = 0;
+        let leaderboard = 0, guildCats = 0;
         const scanLog = [];
 
         try {
@@ -280,6 +277,16 @@ console.log('[Fabio RH] console-test :', "68cf50b - Leaderboard : lecture passiv
             }
             if (activeTab) activeTab.click();
             await sleep(50);
+
+            // Puis le leaderboard : tous les joueurs classés dans chaque métier et skill de combat
+            try {
+                const lb = await scanLeaderboard(scanLog);
+                countNew += lb.countNew;
+                leaderboard = lb.classements;
+                guildCats = lb.guildCats || 0;
+            } catch (e) {
+                log('Erreur pendant le scan du leaderboard :', e);
+            }
         } finally {
             isScanning = false;
             if (scanBtn) { scanBtn.disabled = false; scanBtn.textContent = '1. Scanner'; }
@@ -288,89 +295,195 @@ console.log('[Fabio RH] console-test :', "68cf50b - Leaderboard : lecture passiv
 
         log(`${countNew} nouveaux joueurs mis en file d'attente (${recrues.size} au total).`);
         console.table(scanLog.filter(e => e.resultat.startsWith('ignoré')));
-        setStatus(`Scan terminé (${tabs.length} onglets de chat) : ${countNew} nouveau(x) joueur(s).`, 'ok');
+        setStatus(`Scan terminé (${tabs.length} onglets de chat, ${leaderboard} classements, ${guildes.size} guildes) : ${countNew} nouveau(x) joueur(s).`,
+            leaderboard && guildCats ? 'ok' : 'warn');
         updateModalUI();
+        if (document.getElementById('mwi-tracker-modal').dataset.view === 'guilds') renderGuildView();
     };
 
     // ---------------------------------------------------------------
-    // 1b. Leaderboard : lecture passive des classements que le joueur ouvre lui-même dans le jeu
+    // 1b. Scanner le leaderboard : les joueurs classés de chaque métier et skill de combat
     // ---------------------------------------------------------------
-    // À chaque classement ouvert, le jeu reçoit un message "leaderboard_updated" avec toutes les lignes
-    // (nom, rang, valeurs). On les lit au passage : le script ne clique rien et n'envoie aucune demande.
-    const LB_JOUEURS = ['total_level', 'milking', 'foraging', 'woodcutting', 'cheesesmithing', 'crafting', 'tailoring', 'cooking',
-        'brewing', 'alchemy', 'enhancing', 'stamina', 'intelligence', 'attack', 'defense', 'melee', 'ranged', 'magic',
-        'task_points', 'labyrinth_points', 'labyrinth_depth', 'collection_points', 'bestiary_points', 'fame_points'];
-    const LB_GUILDES = { guild: 'Level', guild_buildings: 'Buildings', guild_shrines: 'Shrines', guild_points: 'Guild Points',
-        guild_weekly_points: 'Weekly Points', guild_weekly_trial: 'Weekly Trials' };
-    const lbRecus = { joueurs: new Set(), guildes: new Set() }; // classements déjà lus : "type|catégorie" et catégorie de guilde
-    let lbDernier = ''; // dernier message reçu, pour ne pas le traiter deux fois
-    function onLeaderboard(msg) {
-        const lb = msg.leaderboard || {};
-        const type = msg.leaderboardType || lb.type || '', cat = msg.leaderboardCategory || lb.category || '';
-        const cle = [type, cat, msg.guildTypeFilter, msg.gameModeFilter, msg.trialFilter, msg.leaderboardRevision, (lb.rows || []).length].join('|');
-        if (cle === lbDernier) return; // le jeu relit plusieurs fois le même message
-        lbDernier = cle;
-        // Lignes du classement, plus toute ligne isolée (notre propre rang quand il est hors du haut du classement)
-        const rows = (Array.isArray(lb.rows) ? lb.rows : []).concat(
-            Object.values(lb).filter(v => v && typeof v === 'object' && !Array.isArray(v) && v.name && 'rank' in v));
-        if (type === 'guild') {
-            // Seul le classement sans filtre donne le vrai rang de chaque guilde
-            if ((msg.guildTypeFilter || 'all') !== 'all' || (msg.gameModeFilter || 'all') !== 'all') {
-                setStatus('Classement de guildes filtré : remets les filtres du jeu sur « All » pour qu\'il soit lu.', 'warn');
-                return;
-            }
-            const label = pretty(cat.replace(/^guild_/, ''));
-            const cols = (lb.columnNames || []).map(c => pretty(String(c).split('.').pop().replace(/([a-z])([A-Z])/g, '$1 $2')));
-            rows.forEach(r => {
-                if (!r.name) return;
-                const g = guildes.get(r.name) || { nom: r.name, stats: {} };
-                const valeurs = {};
-                cols.forEach((c, i) => { const v = r['value' + (i + 1)]; if (v !== undefined) valeurs[c || 'Valeur'] = nb(v); });
-                g.stats[label] = { rang: r.rank, valeurs };
-                guildes.set(r.name, g);
-            });
-            lbRecus.guildes.add(cat);
-            setStatus(`Classement de guildes « ${LB_GUILDES[cat] || label} » lu : ${rows.length} guildes.`, 'ok');
-            if (document.getElementById('mwi-tracker-modal')?.dataset.view === 'guilds') renderGuildView();
-        } else {
-            const iron = /iron/i.test(`${type} ${msg.gameModeFilter || ''}`);
-            let nouveaux = 0;
-            rows.forEach(r => {
-                const nom = r.name || r.characterName;
-                if (!/^[a-zA-Z0-9_-]{2,30}$/.test(nom || '')) return;
-                if (upsertRecruit(nom, '', iron || /iron/i.test(r.gameMode || ''), [], `leaderboard ${cat}`, '')) nouveaux++;
-            });
-            lbRecus.joueurs.add(`${type}|${cat}`);
-            setStatus(`Classement ${pretty(type)} « ${pretty(cat)} » lu : ${nouveaux} nouveau(x) joueur(s).`, 'ok');
-            updateModalUI();
+    const horsJeu = (e) => e.closest('#mwi-tracker-modal') || e.closest('[class*="NavigationBar_"]') || e.closest('[class*="Chat_"]');
+    const txt = (e) => (e.textContent || '').trim();
+    // Éléments visibles dont le texte est exactement celui demandé : le plus profond de chaque branche
+    // (un bouton du jeu contient souvent son texte + un élément vide pour l'effet de clic)
+    const exactEls = (root, text) => Array.from(root.querySelectorAll('*')).filter(e =>
+        txt(e) === text && !Array.from(e.children).some(c => txt(c) === text) && e.offsetParent !== null && !horsJeu(e));
+    const commonAncestor = (a, b) => { let el = a; while (el && !el.contains(b)) el = el.parentElement; return el; };
+
+    const visible = (e) => e.offsetParent !== null && !horsJeu(e);
+    // Onglet ou bouton du jeu portant exactement ce texte
+    const tabEl = (root, text) => Array.from(root.querySelectorAll('[role="tab"], button')).find(e => txt(e) === text && visible(e))
+        || exactEls(root, text)[0];
+
+    // Page Leaderboard du jeu (les pages non affichées restent dans le document, masquées) :
+    // le panneau nommé par le jeu, sinon le bloc autour de l'onglet "Guilds" qui contient aussi le tableau
+    function findLeaderboard() {
+        const panel = Array.from(document.querySelectorAll('[class*="LeaderboardPanel"]')).find(visible);
+        if (panel) return panel;
+        let el = tabEl(document.body, 'Guilds');
+        while (el && el !== document.body && !/Rank[\s\S]*Name/.test(el.textContent)) el = el.parentElement;
+        return el && el !== document.body ? el : null;
+    }
+
+    // Joueurs du classement affiché : composant CharacterName du jeu, sinon 2e colonne du tableau
+    function leaderboardPlayers(root) {
+        const els = Array.from(root.querySelectorAll('[class*="CharacterName_name"][data-name]'));
+        if (els.length) return els.map(readCharacterName);
+        return Array.from(root.querySelectorAll('tr'), tr => tr.children[1] ? txt(tr.children[1]) : '')
+            .filter(n => n && n !== 'Name').map(username => ({ username, ironcow: false, color: '' }));
+    }
+
+    // Attend que le classement affiché change puis se stabilise (le jeu le charge après le clic)
+    async function waitLeaderboard(root, before) {
+        const snap = () => leaderboardPlayers(root).map(c => c.username).join('|');
+        let last = snap();
+        for (let k = 0; k < 30 && last === before; k++) { await sleep(POLL_MS); last = snap(); }
+        for (let k = 0; k < 10; k++) {
+            await sleep(80);
+            const now = snap();
+            if (now === last && now) break;
+            last = now;
         }
-        renderLeaderboard();
+        return last;
     }
 
-    // Suivi dans la modale : les classements déjà lus sont cochés, les autres restent à ouvrir dans le jeu
-    function renderLeaderboard() {
-        const box = document.getElementById('mwi-lb');
-        if (!box) return;
-        const puce = (p) => `<span class="mwi-r-lbc${p[0] ? ' lu' : ''}">${p[0] ? '✓ ' : ''}${esc(p[1])}</span>`;
-        const modes = currentMode === 'standard' ? ['standard'] : currentMode === 'ironcow' ? ['ironcow'] : ['standard', 'ironcow'];
-        const groupes = modes.map(m => ({ nom: pretty(m), puces: LB_JOUEURS.map(c => [lbRecus.joueurs.has(`${m}|${c}`), pretty(c)]) }));
-        groupes.push({ nom: 'Guilds', puces: Object.keys(LB_GUILDES).map(c => [lbRecus.guildes.has(c), LB_GUILDES[c]]) });
-        const lus = groupes.reduce((n, g) => n + g.puces.filter(p => p[0]).length, 0);
-        const total = groupes.reduce((n, g) => n + g.puces.length, 0);
-        const details = box.querySelector('details');
-        box.innerHTML = `<details${!details || details.open ? ' open' : ''}>
-            <summary>Leaderboard : ${lus} / ${total} classements lus — ouvre-les dans le jeu, ils sont lus au passage</summary>
-            ${groupes.map(g => `<div class="mwi-r-lbg"><b>${esc(g.nom)}</b>${g.puces.map(puce).join('')}</div>`).join('')}
-        </details>`;
+    // Se rend sur la page Leaderboard, parcourt chaque classement et ajoute les joueurs listés
+    async function scanLeaderboard(scanLog) {
+        let countNew = 0, classements = 0;
+        const pageAvant = document.querySelector('[class*="NavigationBar_active"]');
+        let root = findLeaderboard();
+        if (!root) {
+            const nav = document.querySelector('svg[aria-label="navigationBar.leaderboard"]');
+            if (!nav) { log('Leaderboard : lien introuvable dans le menu du jeu.'); return { countNew, classements }; }
+            (nav.closest('[class*="NavigationBar_navigationLink"]') || nav.parentElement).click();
+            for (let k = 0; k < 75 && !root; k++) { await sleep(POLL_MS); root = findLeaderboard(); }
+        }
+        if (!root) {
+            log('Leaderboard : page introuvable après ouverture. Éléments "Leaderboard" du document :',
+                Array.from(document.querySelectorAll('[class*="Leaderboard"]'), e => `${e.className}${visible(e) ? '' : ' (masqué)'}`).slice(0, 12));
+            return { countNew, classements };
+        }
+        log('Leaderboard : page trouvée', root.className);
+
+        // Onglets du jeu selon le filtre de mode (jamais l'onglet des guildes)
+        const modes = currentMode === 'standard' ? ['Standard'] : currentMode === 'ironcow' ? ['Ironcow'] : ['Standard', 'Ironcow'];
+        for (const mode of modes) {
+            const tab = tabEl(root, mode);
+            if (!tab) {
+                log(`Leaderboard : onglet "${mode}" introuvable. Onglets vus :`, Array.from(root.querySelectorAll('[role="tab"], button'), txt));
+                continue;
+            }
+            let before = await waitLeaderboard(root, null);
+            tab.click();
+            await sleep(TAB_SWITCH_WAIT_MS);
+
+            // Liste des classements : le bloc qui contient à la fois "Milking" et "Foraging"
+            const m = exactEls(root, 'Milking')[0], f = exactEls(root, 'Foraging')[0];
+            const box = m && f && commonAncestor(m, f);
+            if (!box) {
+                log(`Leaderboard : liste des classements introuvable (${mode}). Onglets vus :`, Array.from(root.querySelectorAll('[role="tab"], button'), txt));
+                continue;
+            }
+            const labels = Array.from(box.children, txt).filter(Boolean);
+
+            for (const label of labels) {
+                const el = tabEl(box, label);
+                if (!el) continue;
+                setStatus(`Leaderboard ${mode} : ${label}...`, '');
+                el.click();
+                before = await waitLeaderboard(root, before);
+                const joueurs = leaderboardPlayers(root);
+                if (!joueurs.length) { log(`Leaderboard : aucun joueur lu dans "${label}" (${mode}).`); continue; }
+                classements++;
+                joueurs.forEach(c => {
+                    if (!/^[a-zA-Z0-9_-]{2,30}$/.test(c.username || '')) return;
+                    if (upsertRecruit(c.username, c.color, c.ironcow || mode === 'Ironcow', scanLog, `leaderboard ${label}`, '')) countNew++;
+                });
+                updateModalUI();
+            }
+        }
+        // Onglet des guildes : tous les classements de guildes, pour la comparaison
+        let guildCats = 0;
+        try { guildCats = await scanGuilds(root); } catch (e) { log('Erreur pendant la lecture des guildes :', e); }
+
+        // Retour à la page du jeu affichée avant le scan
+        if (pageAvant && pageAvant.isConnected && !pageAvant.querySelector('svg[aria-label="navigationBar.leaderboard"]')) pageAvant.click();
+        return { countNew, classements, guildCats };
     }
 
-    // Nombre lu dans une valeur affichée : "10 054 281", "1,2M", "513"
+    // Nombre lu dans une cellule du jeu : "10 054 281", "1,2M", "513"
     const num = (v) => {
         const m = String(v).replace(/\s/g, '').match(/^(-?\d[\d.,]*)([KMBT])?/i);
         if (!m) return NaN;
         const mult = { K: 1e3, M: 1e6, B: 1e9, T: 1e12 }[(m[2] || '').toUpperCase()];
         return mult ? parseFloat(m[1].replace(',', '.')) * mult : parseFloat(m[1].replace(/[.,]/g, ''));
     };
+
+    // Tableau affiché sur la page : en-têtes nettoyés (sans flèches de tri) et lignes de cellules
+    function readTable(root) {
+        const table = Array.from(root.querySelectorAll('table')).find(visible);
+        if (!table) return null;
+        const trs = Array.from(table.querySelectorAll('tr'));
+        const head = trs.find(tr => tr.querySelector('th')) || trs[0];
+        if (!head) return null;
+        return {
+            headers: Array.from(head.children, c => txt(c).replace(/[^\w\s/().%-]/g, '').trim()),
+            rows: trs.filter(tr => tr !== head && tr.children.length >= 2).map(tr => Array.from(tr.children, txt))
+        };
+    }
+
+    async function waitTable(root, before) {
+        const snap = () => { const t = readTable(root); return t ? t.rows.slice(0, 6).map(r => r.join(',')).join('|') : ''; };
+        let last = snap();
+        for (let k = 0; k < 30 && last === before; k++) { await sleep(POLL_MS); last = snap(); }
+        for (let k = 0; k < 10; k++) {
+            await sleep(80);
+            const now = snap();
+            if (now === last && now) break;
+            last = now;
+        }
+        return last;
+    }
+
+    // Lit chaque classement de l'onglet "Guilds" (Level, Buildings, Shrines...) : rang et colonnes de chaque guilde.
+    // Le jeu affiche notre propre guilde en première ligne avec son vrai rang, même hors du haut du classement.
+    async function scanGuilds(root) {
+        const tab = tabEl(root, 'Guilds');
+        if (!tab) { log('Guildes : onglet "Guilds" introuvable.'); return 0; }
+        tab.click();
+        await sleep(TAB_SWITCH_WAIT_MS);
+        const a = exactEls(root, 'Buildings')[0], b = exactEls(root, 'Shrines')[0];
+        const box = a && b && commonAncestor(a, b);
+        if (!box) {
+            log('Guildes : liste des classements introuvable. Onglets vus :', Array.from(root.querySelectorAll('[role="tab"], button'), txt));
+            return 0;
+        }
+        const labels = Array.from(box.children, txt).filter(Boolean);
+        let lus = 0, before = null;
+        for (const label of labels) {
+            const el = tabEl(box, label);
+            if (!el) continue;
+            setStatus(`Leaderboard guildes : ${label}...`, '');
+            el.click();
+            before = await waitTable(root, before);
+            const t = readTable(root);
+            if (!t || !t.rows.length) { log(`Guildes : aucune ligne lue dans "${label}".`, t ? t.headers : 'pas de tableau'); continue; }
+            lus++;
+            t.rows.forEach(cells => {
+                const nom = cells[1];
+                if (!nom) return;
+                const g = guildes.get(nom) || { nom, stats: {} };
+                const valeurs = {};
+                t.headers.forEach((h, i) => { if (i >= 2 && h) valeurs[h] = cells[i] || ''; });
+                g.stats[label] = { rang: num(cells[0]), valeurs };
+                guildes.set(nom, g);
+            });
+        }
+        log(`Guildes : ${guildes.size} guildes lues sur ${lus} classements.`);
+        return lus;
+    }
 
     function newRecruit(nom, color = '') {
         return {
@@ -429,7 +542,7 @@ console.log('[Fabio RH] console-test :', "68cf50b - Leaderboard : lecture passiv
     // ---------------------------------------------------------------
     // 3. Interface & Styles
     // ---------------------------------------------------------------
-    const CSS = "#mwi-tracker-modal, #mwi-radar-launcher {\r\n    --r-bg: #0c0a0b;\r\n    --r-panel: #171113;\r\n    --r-panel-2: #24161a;\r\n    --r-border: #4a1f25;\r\n    --r-accent: #e0343c;\r\n    --r-accent-strong: #b3151d;\r\n    --r-gold: #e8b64c;\r\n    --r-text: #f4ece6;\r\n    --r-muted: #a08a8c;\r\n    --r-ok: #4ecb8d;\r\n    --r-warn: #f0a950;\r\n    --r-err: #ff5a5f;\r\n    font-family: \"Roboto\", \"Segoe UI\", sans-serif;\r\n    box-sizing: border-box;\r\n}\r\n#mwi-tracker-modal *, #mwi-radar-launcher * { box-sizing: border-box; }\r\n\r\n#mwi-tracker-modal {\r\n    position: fixed; top: 60px; right: 12px; z-index: 99999;\r\n    width: 340px; max-width: calc(100vw - 16px);\r\n    display: flex; flex-direction: column;\r\n    background: var(--r-bg); color: var(--r-text);\r\n    border: 1px solid var(--r-border); border-radius: 10px;\r\n    box-shadow: 0 8px 24px rgba(0,0,0,.55);\r\n    overflow: hidden; font-size: 13px;\r\n}\r\n#mwi-tracker-modal[data-mode=\"max\"] {\r\n    top: 5vh !important; left: 5vw !important; right: auto !important;\r\n    width: 90vw !important; height: 88vh !important;\r\n}\r\n#mwi-tracker-modal[data-mode=\"min\"] { height: auto !important; }\r\n#mwi-tracker-modal[data-sized=\"1\"] .mwi-r-list { max-height: none; }\r\n#mwi-tracker-modal[data-mode=\"min\"] .mwi-r-body { display: none; }\r\n#mwi-tracker-modal[data-mode=\"min\"] { width: 260px; }\r\n\r\n.mwi-r-head {\r\n    display: flex; align-items: center; gap: 8px;\r\n    padding: 8px 10px; cursor: move; user-select: none;\r\n    background: linear-gradient(180deg, var(--r-panel-2), var(--r-panel));\r\n    border-bottom: 2px solid var(--r-accent);\r\n}\r\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-head { cursor: default; }\r\n.mwi-r-title { flex: 1; font-size: 14px; font-weight: 700; color: var(--r-accent); letter-spacing: .3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\r\n.mwi-r-logo { width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; display: block; }\r\n#mwi-radar-launcher { padding: 0; overflow: hidden; }\r\n#mwi-radar-launcher .mwi-r-logo { width: 100%; height: 100%; }\r\n.mwi-r-player { cursor: pointer; }\r\n.mwi-r-player:hover { text-decoration: underline; }\r\n.mwi-r-right { display: flex; align-items: center; gap: 6px; }\r\n.mwi-r-profile {\r\n    visibility: hidden; font-weight: 700;\r\n    padding: 3px 12px; font-size: 12px; letter-spacing: .3px; cursor: pointer;\r\n    color: #fff; background: var(--r-accent);\r\n    border: 1px solid var(--r-accent); border-radius: 4px;\r\n    box-shadow: 0 0 8px rgba(224, 52, 60, .45);\r\n    transition: background .15s, box-shadow .15s, transform .1s;\r\n}\r\n.mwi-r-profile:hover { text-decoration: none; background: var(--r-accent-strong); box-shadow: 0 0 12px rgba(224, 52, 60, .75); transform: translateY(-1px); }\r\n.mwi-r-badge {\r\n    min-width: 22px; padding: 1px 7px; text-align: center;\r\n    font-size: 12px; font-weight: 700; color: var(--r-bg);\r\n    background: var(--r-ok); border-radius: 10px;\r\n}\r\n.mwi-r-ctrl { display: flex; gap: 4px; }\r\n.mwi-r-icon {\r\n    width: 24px; height: 24px; padding: 0; line-height: 1;\r\n    display: flex; align-items: center; justify-content: center;\r\n    color: var(--r-text); background: transparent;\r\n    border: 1px solid var(--r-border); border-radius: 5px;\r\n    cursor: pointer; font-size: 14px; transition: background .15s, border-color .15s;\r\n}\r\n.mwi-r-icon:hover { background: var(--r-panel-2); border-color: var(--r-accent); }\r\n.mwi-r-icon.close:hover { background: var(--r-err); border-color: var(--r-err); }\r\n\r\n.mwi-r-body { display: flex; flex-direction: column; gap: 10px; padding: 10px; flex: 1; min-height: 0; }\r\n\r\n.mwi-r-toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }\r\n\r\n.mwi-r-chans-head { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--r-muted); }\r\n.mwi-r-chans { display: flex; flex-wrap: wrap; gap: 4px; }\r\n.mwi-r-chan {\r\n    display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;\r\n    font-size: 11px; cursor: pointer; user-select: none;\r\n    background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 10px;\r\n}\r\n.mwi-r-chan:has(input:checked) { border-color: var(--r-accent); color: var(--r-text); }\r\n.mwi-r-chan:not(:has(input:checked)) { color: var(--r-muted); opacity: .7; }\r\n.mwi-r-chan.iron:has(input:checked) { border-color: var(--r-warn); }\r\n.mwi-r-chan input { margin: 0; accent-color: var(--r-accent); }\r\n.mwi-r-chan-empty { font-size: 11px; font-style: italic; color: var(--r-muted); }\r\n/* Suivi des classements du leaderboard lus au passage */\r\n.mwi-r-lb { font-size: 11px; color: var(--r-muted); }\r\n.mwi-r-lb summary { cursor: pointer; user-select: none; }\r\n.mwi-r-lbg { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; margin-top: 4px; }\r\n.mwi-r-lbg b { flex: 0 0 64px; color: var(--r-text); }\r\n.mwi-r-lbc { padding: 1px 6px; background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 8px; opacity: .7; }\r\n.mwi-r-lbc.lu { color: var(--r-ok); border-color: var(--r-ok); opacity: 1; }\r\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-lb { display: none; }\r\n.mwi-r-iron { font-size: 11px; font-weight: 700; color: var(--r-warn); margin-left: 4px; }\r\n.mwi-r-select {\r\n    flex: 0 1 150px; padding: 5px 8px; color: var(--r-text);\r\n    background: var(--r-panel); border: 1px solid var(--r-border);\r\n    border-radius: 5px; font-size: 12px; outline: none;\r\n}\r\n.mwi-r-select:focus { border-color: var(--r-accent); }\r\n\r\n.mwi-r-btn {\r\n    padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer;\r\n    color: var(--r-text); background: var(--r-panel-2);\r\n    border: 1px solid var(--r-border); border-radius: 5px;\r\n    transition: background .15s, border-color .15s, opacity .15s;\r\n}\r\n.mwi-r-btn:hover:not(:disabled) { border-color: var(--r-accent); background: #331a1f; }\r\n.mwi-r-btn.primary { color: #fff; background: var(--r-accent); border-color: var(--r-accent); }\r\n.mwi-r-btn.primary:hover:not(:disabled) { background: var(--r-accent-strong); }\r\n.mwi-r-btn:disabled { opacity: .55; cursor: not-allowed; }\r\n\r\n.mwi-r-list {\r\n    overflow-x: hidden; padding-right: 2px;\r\n    flex: 1; min-height: 120px; max-height: 320px; overflow-y: auto;\r\n    list-style: none; margin: 0; padding: 0;\r\n    display: grid; grid-template-columns: 1fr; gap: 6px; align-content: start;\r\n}\r\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-list {\r\n    max-height: none;\r\n    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));\r\n}\r\n.mwi-r-list::-webkit-scrollbar { width: 8px; }\r\n.mwi-r-list::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }\r\n\r\n.mwi-r-card {\r\n    padding: 8px 10px; background: var(--r-panel);\r\n    border: 1px solid var(--r-border); border-left: 3px solid var(--r-ok);\r\n    border-radius: 6px;\r\n}\r\n.mwi-r-card.guild { border-left-color: var(--r-gold); }\r\n.mwi-r-card.fail { border-left-color: var(--r-err); }\r\n.mwi-r-card.pending { border-left-color: var(--r-muted); }\r\n.mwi-r-name { font-weight: 700; font-size: 14px; color: var(--r-text); display: flex; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; }\r\n.mwi-r-who { display: flex; align-items: center; min-width: 0; overflow: hidden; }\r\n.mwi-r-who .mwi-r-player { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\r\n.mwi-r-iron { flex-shrink: 0; }\r\n.mwi-r-right { flex-shrink: 0; }\r\n.mwi-r-card { min-width: 0; transition: border-color .15s, background .15s; }\r\n.mwi-r-card:hover { background: var(--r-panel-2); border-color: var(--r-accent); }\r\n.mwi-r-tag { font-size: 11px; font-weight: 700; color: var(--r-muted); white-space: nowrap; }\r\n.mwi-r-card:not(.guild):not(.fail):not(.pending) .mwi-r-tag { color: var(--r-ok); }\r\n.mwi-r-card.fail .mwi-r-tag { color: var(--r-err); }\r\n.mwi-r-card.guild .mwi-r-tag { color: var(--r-gold); }\r\n.mwi-r-stats { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 5px; font-size: 12px; color: var(--r-muted); }\r\n.mwi-r-stats b { color: var(--r-text); font-weight: 600; }\r\n.mwi-r-sizes { display: flex; gap: 2px; padding: 2px; background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px; }\r\n.mwi-r-sizes .mwi-r-icon { border-color: transparent; color: var(--r-muted); }\r\n.mwi-r-sizes .mwi-r-icon.active { color: var(--r-accent); background: var(--r-panel-2); border-color: var(--r-accent); }\r\n.mwi-r-details { display: none; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 6px 0 0; font-size: 12px; }\r\n.mwi-r-details dt { color: var(--r-muted); }\r\n.mwi-r-details dd { margin: 0; color: var(--r-text); font-weight: 600; }\r\n\r\n/* Taille des cases : grandes = toutes les infos en liste, moyennes = bouton visible, petites = bouton au survol */\r\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-card { padding: 10px 12px; }\r\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-name { font-size: 15px; }\r\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-stats,\r\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-tag { display: none; }\r\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-details { display: grid; }\r\n#mwi-tracker-modal[data-size=\"large\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }\r\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-profile,\r\n#mwi-tracker-modal[data-size=\"medium\"] .mwi-r-profile { visibility: visible; }\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card { padding: 4px 8px; }\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-name { font-size: 13px; align-items: center; }\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-stats { display: none; }\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-list { gap: 3px; }\r\n#mwi-tracker-modal[data-size=\"small\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card:hover .mwi-r-profile { visibility: visible; }\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card { border-left-width: 1px; }\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-tag { font-size: 0; }\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-tag::before {\r\n    content: ''; display: block; width: 8px; height: 8px; border-radius: 50%; background: currentColor;\r\n}\r\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card.pending .mwi-r-tag { color: var(--r-muted); }\r\n#mwi-tracker-modal[data-size=\"medium\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }\r\n.mwi-r-card[data-player] { cursor: pointer; }\r\n\r\n/* Fiche joueur */\r\n.mwi-r-pview { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 8px; }\r\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-pview { display: flex; }\r\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-list,\r\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-toolbar,\r\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-chans-head,\r\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-chans { display: none; }\r\n#mwi-tracker-modal[data-view=\"guilds\"] .mwi-r-list,\r\n#mwi-tracker-modal[data-view=\"guilds\"] .mwi-r-toolbar,\r\n#mwi-tracker-modal[data-view=\"guilds\"] .mwi-r-chans-head,\r\n#mwi-tracker-modal[data-view=\"guilds\"] .mwi-r-chans { display: none; }\r\n.mwi-r-phead { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--r-border); }\r\n.mwi-r-pname { flex: 1; min-width: 0; font-size: 17px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\r\n.mwi-r-pview .mwi-r-profile { visibility: visible; }\r\n.mwi-r-ptabs { display: flex; flex-wrap: wrap; gap: 4px; }\r\n.mwi-r-ptab {\r\n    padding: 4px 10px; font-size: 12px; font-weight: 700; cursor: pointer;\r\n    color: var(--r-muted); background: var(--r-panel);\r\n    border: 1px solid var(--r-border); border-radius: 14px;\r\n    transition: color .15s, border-color .15s, background .15s;\r\n}\r\n.mwi-r-ptab:hover { color: var(--r-text); border-color: var(--r-accent); }\r\n.mwi-r-ptab.active { color: #fff; background: var(--r-accent); border-color: var(--r-accent); }\r\n.mwi-r-pbody {\r\n    flex: 1; min-height: 140px; max-height: 360px; overflow-y: auto; padding: 10px 12px;\r\n    background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px;\r\n}\r\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-pbody,\r\n#mwi-tracker-modal[data-sized=\"1\"] .mwi-r-pbody { max-height: none; }\r\n.mwi-r-pbody::-webkit-scrollbar { width: 8px; }\r\n.mwi-r-pbody::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }\r\n.mwi-r-pgrid { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: 13px; }\r\n.mwi-r-pgrid dt { color: var(--r-muted); }\r\n.mwi-r-pgrid dd { margin: 0; font-weight: 700; }\r\n.mwi-r-pstat.free { color: var(--r-ok); }\r\n.mwi-r-pstat.guild { color: var(--r-gold); }\r\n.mwi-r-pstat.fail { color: var(--r-err); }\r\n.mwi-r-pstat.pending { color: var(--r-muted); }\r\n.mwi-r-plines { list-style: none; margin: 0; padding: 0; columns: 220px; column-gap: 20px; font-size: 12px; }\r\n.mwi-r-plines li { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,.04); break-inside: avoid; }\r\n.mwi-r-ptab:focus { outline: none; }\r\n.mwi-r-rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 0 20px; margin: 0; font-size: 13px; }\r\n.mwi-r-row {\r\n    display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px;\r\n    padding: 6px 2px; border-bottom: 1px solid rgba(255,255,255,.06);\r\n}\r\n.mwi-r-row dt { color: var(--r-muted); }\r\n.mwi-r-row dd { margin: 0; font-weight: 700; color: var(--r-text); text-align: right; font-variant-numeric: tabular-nums; }\r\n.mwi-r-row.done dd { color: var(--r-ok); }\r\n.mwi-r-bar { flex-basis: 100%; height: 4px; background: var(--r-bg); border-radius: 2px; overflow: hidden; }\r\n.mwi-r-bar > div { height: 100%; background: var(--r-accent); border-radius: 2px; }\r\n.mwi-r-row.done .mwi-r-bar > div { background: var(--r-ok); }\r\n.mwi-r-solos { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 12px; }\r\n.mwi-r-solo-label { color: var(--r-muted); }\r\n.mwi-r-solo { padding: 2px 10px; font-weight: 700; color: var(--r-text); background: var(--r-bg); border: 1px solid var(--r-border); border-radius: 12px; }\r\n.mwi-r-solo-label ~ .mwi-r-solo { font-weight: 400; color: var(--r-muted); border-style: dashed; }\r\n/* Cases du profil : icône au centre, textes et badges dans les coins */\r\n.mwi-r-tiles {\r\n    --tile: 58px;\r\n    display: grid; grid-template-columns: repeat(auto-fill, var(--tile)); grid-auto-rows: var(--tile);\r\n    gap: 6px; margin-top: 10px; justify-content: start; overflow-x: auto; padding-bottom: 2px;\r\n}\r\n.mwi-r-tiles:first-child { margin-top: 0; }\r\n.mwi-r-tiles.placed { grid-template-columns: repeat(var(--cols), var(--tile)); }\r\n.mwi-r-tile {\r\n    position: relative; width: var(--tile); height: var(--tile);\r\n    display: flex; align-items: center; justify-content: center;\r\n    background: linear-gradient(160deg, var(--r-panel-2), var(--r-bg));\r\n    border: 1px solid var(--r-border); border-radius: 6px;\r\n    transition: border-color .15s, box-shadow .15s;\r\n}\r\n.mwi-r-tile:hover { border-color: var(--r-accent); box-shadow: 0 0 8px rgba(224, 52, 60, .35); }\r\n.mwi-r-tico { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; }\r\n.mwi-r-tico svg, .mwi-r-tico img { width: 40px; height: 40px; object-fit: contain; }\r\n.mwi-r-tt {\r\n    position: absolute; max-width: calc(100% - 4px); overflow: hidden; white-space: nowrap;\r\n    font-size: 11px; font-weight: 700; line-height: 1; color: var(--r-text);\r\n    text-shadow: 0 0 3px #000, 0 0 3px #000;\r\n}\r\n.mwi-r-tt.tl { top: 3px; left: 3px; }\r\n.mwi-r-tt.tc { top: 3px; left: 50%; transform: translateX(-50%); }\r\n.mwi-r-tt.tr { top: 3px; right: 3px; }\r\n.mwi-r-tt.bl { bottom: 3px; left: 3px; }\r\n.mwi-r-tt.bc { bottom: 3px; left: 50%; transform: translateX(-50%); }\r\n.mwi-r-tt.br { bottom: 3px; right: 3px; }\r\n.mwi-r-tt.plus { color: var(--r-warn); }\r\n.mwi-r-tt.num { color: var(--r-ok); }\r\n.mwi-r-tb { position: absolute; width: 16px; height: 16px; }\r\n.mwi-r-tb svg, .mwi-r-tb img { width: 16px; height: 16px; }\r\n.mwi-r-tb.tl { top: 2px; left: 2px; }\r\n.mwi-r-tb.tr { top: 2px; right: 2px; }\r\n.mwi-r-tb.bl { bottom: 2px; left: 2px; }\r\n.mwi-r-tb.br { bottom: 2px; right: 2px; }\r\n.mwi-r-tb.tc { top: 2px; left: calc(50% - 8px); }\r\n.mwi-r-tb.bc { bottom: 2px; left: calc(50% - 8px); }\r\n.mwi-r-tile.vide { background: none; border-style: dashed; opacity: .75; }\r\n.mwi-r-tname { padding: 2px; font-size: 9px; line-height: 1.15; text-align: center; color: var(--r-muted); overflow: hidden; }\r\n.mwi-r-sub { margin: 14px 0 6px; font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--r-muted); }\r\n.mwi-r-sub:first-child { margin-top: 0; }\r\n.mwi-r-psec .mwi-r-sub + .mwi-r-tiles, .mwi-r-sub + .mwi-r-tiles { margin-top: 0; }\r\n.mwi-r-pempty { margin: 10px 0 0; font-style: italic; color: var(--r-muted); font-size: 12px; }\r\n\r\n/* Petite fenêtre : un onglet à la fois. Modale large : toutes les sections répertoriées en colonnes, sans onglets */\r\n.mwi-r-pview { container-type: inline-size; container-name: mwi-pview; }\r\n.mwi-r-psec:not(.active) { display: none; }\r\n.mwi-r-psec-title { display: none; }\r\n@container mwi-pview (min-width: 880px) {\r\n    .mwi-r-ptabs { display: none; }\r\n    .mwi-r-pbody { padding: 0 4px 0 0; background: none; border: 0; border-radius: 0; }\r\n    .mwi-r-psecs { columns: 420px; column-gap: 12px; }\r\n    .mwi-r-psec, .mwi-r-psec:not(.active) {\r\n        display: block; break-inside: avoid; margin: 0 0 12px; padding: 12px 14px 14px;\r\n        background: linear-gradient(180deg, var(--r-panel-2), var(--r-panel) 46px);\r\n        border: 1px solid var(--r-border); border-top: 2px solid var(--r-accent); border-radius: 8px;\r\n        box-shadow: 0 2px 10px rgba(0,0,0,.35);\r\n    }\r\n    .mwi-r-psec-title {\r\n        display: flex; align-items: center; gap: 8px; margin: 0 0 12px;\r\n        font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--r-gold);\r\n    }\r\n    .mwi-r-psec-title::after { content: ''; flex: 1; height: 1px; background: var(--r-border); }\r\n    .mwi-r-psec .mwi-r-rows { grid-template-columns: 1fr; }\r\n    .mwi-r-psec .mwi-r-tiles { justify-content: center; }\r\n}\r\n/* Très grande modale : trois colonnes indépendantes (Skills | Résumé, Overview | Equipment), le reste réparti en dessous */\r\n.mwi-r-pcol { display: contents; }\r\n@container mwi-pview (min-width: 1200px) {\r\n    .mwi-r-psecs {\r\n        columns: auto; display: grid; gap: 12px; align-items: start;\r\n        grid-template-columns: minmax(0, .8fr) minmax(0, 1fr) minmax(400px, 1.1fr);\r\n    }\r\n    .mwi-r-pcol { display: flex; flex-direction: column; gap: 12px; min-width: 0; }\r\n    .mwi-r-psec, .mwi-r-psec:not(.active) { margin: 0; min-width: 0; }\r\n    /* Cases plus grandes, réparties sur toute la largeur de la section */\r\n    .mwi-r-psec .mwi-r-tiles {\r\n        --tile: clamp(58px, 4cqw, 72px); gap: 12px 8px; margin-top: 12px;\r\n        grid-template-columns: repeat(auto-fill, minmax(calc(var(--tile) + 14px), 1fr));\r\n        justify-content: stretch; justify-items: center;\r\n    }\r\n    .mwi-r-psec .mwi-r-tiles.placed { grid-template-columns: repeat(var(--cols), minmax(var(--tile), 1fr)); }\r\n    .mwi-r-psec .mwi-r-tico, .mwi-r-psec .mwi-r-tico svg, .mwi-r-psec .mwi-r-tico img { width: calc(var(--tile) - 18px); height: calc(var(--tile) - 18px); }\r\n    .mwi-r-psec .mwi-r-tt { font-size: 12px; }\r\n}\r\n\r\n/* Comparaison des guildes */\r\n.mwi-r-gview { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 8px; }\r\n#mwi-tracker-modal[data-view=\"guilds\"] .mwi-r-gview { display: flex; }\r\n.mwi-r-gcount { margin-left: 8px; font-size: 12px; font-weight: 400; color: var(--r-muted); }\r\n.mwi-r-gbody { flex: 1; min-height: 140px; max-height: 360px; overflow: auto; padding-right: 4px; }\r\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-gbody,\r\n#mwi-tracker-modal[data-sized=\"1\"] .mwi-r-gbody { max-height: none; }\r\n.mwi-r-gbody::-webkit-scrollbar { width: 8px; height: 8px; }\r\n.mwi-r-gbody::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }\r\n.mwi-r-gcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin-bottom: 12px; }\r\n.mwi-r-gcard {\r\n    padding: 10px 12px; cursor: pointer;\r\n    background: linear-gradient(180deg, var(--r-panel-2), var(--r-panel) 46px);\r\n    border: 1px solid var(--r-border); border-top: 2px solid var(--r-border); border-radius: 8px;\r\n    transition: border-color .15s;\r\n}\r\n.mwi-r-gcard:hover, .mwi-r-gcard.active { border-color: var(--r-accent); }\r\n.mwi-r-gcard h4 { margin: 0 0 4px; font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--r-gold); }\r\n.mwi-r-grank { font-size: 24px; font-weight: 700; line-height: 1.2; color: var(--r-text); }\r\n.mwi-r-gcard .mwi-r-rows { grid-template-columns: 1fr; font-size: 12px; }\r\n.mwi-r-rows + .mwi-r-gverdict { margin-top: 10px; }\r\n.mwi-r-gverdict { margin: 0 0 6px; padding: 5px 10px; font-size: 12px; font-weight: 700; color: var(--r-muted); background: var(--r-bg); border-left: 3px solid var(--r-muted); border-radius: 4px; }\r\n.mwi-r-gverdict.mieux { color: var(--r-err); border-left-color: var(--r-err); }\r\n.mwi-r-gverdict.moins { color: var(--r-ok); border-left-color: var(--r-ok); }\r\n.mwi-r-gverdict.egal { color: var(--r-warn); border-left-color: var(--r-warn); }\r\n.mwi-r-gtable { width: 100%; border-collapse: collapse; font-size: 12px; }\r\n.mwi-r-gtable th {\r\n    position: sticky; top: 0; z-index: 1; padding: 6px 8px; text-align: left; white-space: nowrap;\r\n    color: var(--r-muted); background: var(--r-panel-2); border-bottom: 2px solid var(--r-border);\r\n}\r\n.mwi-r-gtable th[data-action] { cursor: pointer; }\r\n.mwi-r-gtable th[data-action]:hover { color: var(--r-text); }\r\n.mwi-r-gtable th.active { color: var(--r-accent); border-bottom-color: var(--r-accent); }\r\n.mwi-r-gtable td { padding: 5px 8px; white-space: nowrap; border-bottom: 1px solid rgba(255,255,255,.05); }\r\n.mwi-r-gtable .n { text-align: right; font-variant-numeric: tabular-nums; }\r\n.mwi-r-gtable small { margin-left: 4px; color: var(--r-muted); }\r\n.mwi-r-gtable tbody tr:hover { background: var(--r-panel); }\r\n.mwi-r-gtable tr.moi td { font-weight: 700; color: var(--r-gold); background: var(--r-panel-2); border-bottom: 1px solid var(--r-accent); }\r\n\r\n.mwi-r-empty { padding: 18px 8px; text-align: center; font-style: italic; color: var(--r-muted); background: var(--r-panel); border: 1px dashed var(--r-border); border-radius: 6px; }\r\n\r\n.mwi-r-progress { height: 4px; background: var(--r-panel); border-radius: 2px; overflow: hidden; display: none; }\r\n.mwi-r-progress > div { height: 100%; width: 0; background: var(--r-accent); transition: width .2s; }\r\n\r\n.mwi-r-actions { display: flex; gap: 8px; }\r\n.mwi-r-actions .mwi-r-btn { flex: 1; }\r\n\r\n.mwi-r-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 11px; color: var(--r-muted); }\r\n#mwi-status.ok { color: var(--r-ok); }\r\n#mwi-status.warn { color: var(--r-warn); }\r\n#mwi-status.err { color: var(--r-err); }\r\n\r\n#mwi-radar-launcher {\r\n    position: fixed; bottom: 16px; right: 16px; z-index: 99998; display: none;\r\n    width: 44px; height: 44px; align-items: center; justify-content: center;\r\n    font-size: 20px; cursor: pointer; color: var(--r-accent);\r\n    background: var(--r-panel); border: 1px solid var(--r-border);\r\n    border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,.5);\r\n}\r\n#mwi-radar-launcher:hover { border-color: var(--r-accent); background: var(--r-panel-2); }\r\n";
+    const CSS = "#mwi-tracker-modal, #mwi-radar-launcher {\n    --r-bg: #0c0a0b;\n    --r-panel: #171113;\n    --r-panel-2: #24161a;\n    --r-border: #4a1f25;\n    --r-accent: #e0343c;\n    --r-accent-strong: #b3151d;\n    --r-gold: #e8b64c;\n    --r-text: #f4ece6;\n    --r-muted: #a08a8c;\n    --r-ok: #4ecb8d;\n    --r-warn: #f0a950;\n    --r-err: #ff5a5f;\n    font-family: \"Roboto\", \"Segoe UI\", sans-serif;\n    box-sizing: border-box;\n}\n#mwi-tracker-modal *, #mwi-radar-launcher * { box-sizing: border-box; }\n\n#mwi-tracker-modal {\n    position: fixed; top: 60px; right: 12px; z-index: 99999;\n    width: 340px; max-width: calc(100vw - 16px);\n    display: flex; flex-direction: column;\n    background: var(--r-bg); color: var(--r-text);\n    border: 1px solid var(--r-border); border-radius: 10px;\n    box-shadow: 0 8px 24px rgba(0,0,0,.55);\n    overflow: hidden; font-size: 13px;\n}\n#mwi-tracker-modal[data-mode=\"max\"] {\n    top: 5vh !important; left: 5vw !important; right: auto !important;\n    width: 90vw !important; height: 88vh !important;\n}\n#mwi-tracker-modal[data-mode=\"min\"] { height: auto !important; }\n#mwi-tracker-modal[data-sized=\"1\"] .mwi-r-list { max-height: none; }\n#mwi-tracker-modal[data-mode=\"min\"] .mwi-r-body { display: none; }\n#mwi-tracker-modal[data-mode=\"min\"] { width: 260px; }\n\n.mwi-r-head {\n    display: flex; align-items: center; gap: 8px;\n    padding: 8px 10px; cursor: move; user-select: none;\n    background: linear-gradient(180deg, var(--r-panel-2), var(--r-panel));\n    border-bottom: 2px solid var(--r-accent);\n}\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-head { cursor: default; }\n.mwi-r-title { flex: 1; font-size: 14px; font-weight: 700; color: var(--r-accent); letter-spacing: .3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n.mwi-r-logo { width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; display: block; }\n#mwi-radar-launcher { padding: 0; overflow: hidden; }\n#mwi-radar-launcher .mwi-r-logo { width: 100%; height: 100%; }\n.mwi-r-player { cursor: pointer; }\n.mwi-r-player:hover { text-decoration: underline; }\n.mwi-r-right { display: flex; align-items: center; gap: 6px; }\n.mwi-r-profile {\n    visibility: hidden; font-weight: 700;\n    padding: 3px 12px; font-size: 12px; letter-spacing: .3px; cursor: pointer;\n    color: #fff; background: var(--r-accent);\n    border: 1px solid var(--r-accent); border-radius: 4px;\n    box-shadow: 0 0 8px rgba(224, 52, 60, .45);\n    transition: background .15s, box-shadow .15s, transform .1s;\n}\n.mwi-r-profile:hover { text-decoration: none; background: var(--r-accent-strong); box-shadow: 0 0 12px rgba(224, 52, 60, .75); transform: translateY(-1px); }\n.mwi-r-badge {\n    min-width: 22px; padding: 1px 7px; text-align: center;\n    font-size: 12px; font-weight: 700; color: var(--r-bg);\n    background: var(--r-ok); border-radius: 10px;\n}\n.mwi-r-ctrl { display: flex; gap: 4px; }\n.mwi-r-icon {\n    width: 24px; height: 24px; padding: 0; line-height: 1;\n    display: flex; align-items: center; justify-content: center;\n    color: var(--r-text); background: transparent;\n    border: 1px solid var(--r-border); border-radius: 5px;\n    cursor: pointer; font-size: 14px; transition: background .15s, border-color .15s;\n}\n.mwi-r-icon:hover { background: var(--r-panel-2); border-color: var(--r-accent); }\n.mwi-r-icon.close:hover { background: var(--r-err); border-color: var(--r-err); }\n\n.mwi-r-body { display: flex; flex-direction: column; gap: 10px; padding: 10px; flex: 1; min-height: 0; }\n\n.mwi-r-toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }\n\n.mwi-r-chans-head { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--r-muted); }\n.mwi-r-chans { display: flex; flex-wrap: wrap; gap: 4px; }\n.mwi-r-chan {\n    display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;\n    font-size: 11px; cursor: pointer; user-select: none;\n    background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 10px;\n}\n.mwi-r-chan:has(input:checked) { border-color: var(--r-accent); color: var(--r-text); }\n.mwi-r-chan:not(:has(input:checked)) { color: var(--r-muted); opacity: .7; }\n.mwi-r-chan.iron:has(input:checked) { border-color: var(--r-warn); }\n.mwi-r-chan input { margin: 0; accent-color: var(--r-accent); }\n.mwi-r-chan-empty { font-size: 11px; font-style: italic; color: var(--r-muted); }\n.mwi-r-iron { font-size: 11px; font-weight: 700; color: var(--r-warn); margin-left: 4px; }\n.mwi-r-select {\n    flex: 0 1 150px; padding: 5px 8px; color: var(--r-text);\n    background: var(--r-panel); border: 1px solid var(--r-border);\n    border-radius: 5px; font-size: 12px; outline: none;\n}\n.mwi-r-select:focus { border-color: var(--r-accent); }\n\n.mwi-r-btn {\n    padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer;\n    color: var(--r-text); background: var(--r-panel-2);\n    border: 1px solid var(--r-border); border-radius: 5px;\n    transition: background .15s, border-color .15s, opacity .15s;\n}\n.mwi-r-btn:hover:not(:disabled) { border-color: var(--r-accent); background: #331a1f; }\n.mwi-r-btn.primary { color: #fff; background: var(--r-accent); border-color: var(--r-accent); }\n.mwi-r-btn.primary:hover:not(:disabled) { background: var(--r-accent-strong); }\n.mwi-r-btn:disabled { opacity: .55; cursor: not-allowed; }\n\n.mwi-r-list {\n    overflow-x: hidden; padding-right: 2px;\n    flex: 1; min-height: 120px; max-height: 320px; overflow-y: auto;\n    list-style: none; margin: 0; padding: 0;\n    display: grid; grid-template-columns: 1fr; gap: 6px; align-content: start;\n}\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-list {\n    max-height: none;\n    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));\n}\n.mwi-r-list::-webkit-scrollbar { width: 8px; }\n.mwi-r-list::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }\n\n.mwi-r-card {\n    padding: 8px 10px; background: var(--r-panel);\n    border: 1px solid var(--r-border); border-left: 3px solid var(--r-ok);\n    border-radius: 6px;\n}\n.mwi-r-card.guild { border-left-color: var(--r-gold); }\n.mwi-r-card.fail { border-left-color: var(--r-err); }\n.mwi-r-card.pending { border-left-color: var(--r-muted); }\n.mwi-r-name { font-weight: 700; font-size: 14px; color: var(--r-text); display: flex; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; }\n.mwi-r-who { display: flex; align-items: center; min-width: 0; overflow: hidden; }\n.mwi-r-who .mwi-r-player { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.mwi-r-iron { flex-shrink: 0; }\n.mwi-r-right { flex-shrink: 0; }\n.mwi-r-card { min-width: 0; transition: border-color .15s, background .15s; }\n.mwi-r-card:hover { background: var(--r-panel-2); border-color: var(--r-accent); }\n.mwi-r-tag { font-size: 11px; font-weight: 700; color: var(--r-muted); white-space: nowrap; }\n.mwi-r-card:not(.guild):not(.fail):not(.pending) .mwi-r-tag { color: var(--r-ok); }\n.mwi-r-card.fail .mwi-r-tag { color: var(--r-err); }\n.mwi-r-card.guild .mwi-r-tag { color: var(--r-gold); }\n.mwi-r-stats { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 5px; font-size: 12px; color: var(--r-muted); }\n.mwi-r-stats b { color: var(--r-text); font-weight: 600; }\n.mwi-r-sizes { display: flex; gap: 2px; padding: 2px; background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px; }\n.mwi-r-sizes .mwi-r-icon { border-color: transparent; color: var(--r-muted); }\n.mwi-r-sizes .mwi-r-icon.active { color: var(--r-accent); background: var(--r-panel-2); border-color: var(--r-accent); }\n.mwi-r-details { display: none; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 6px 0 0; font-size: 12px; }\n.mwi-r-details dt { color: var(--r-muted); }\n.mwi-r-details dd { margin: 0; color: var(--r-text); font-weight: 600; }\n\n/* Taille des cases : grandes = toutes les infos en liste, moyennes = bouton visible, petites = bouton au survol */\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-card { padding: 10px 12px; }\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-name { font-size: 15px; }\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-stats,\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-tag { display: none; }\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-details { display: grid; }\n#mwi-tracker-modal[data-size=\"large\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-profile,\n#mwi-tracker-modal[data-size=\"medium\"] .mwi-r-profile { visibility: visible; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card { padding: 4px 8px; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-name { font-size: 13px; align-items: center; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-stats { display: none; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-list { gap: 3px; }\n#mwi-tracker-modal[data-size=\"small\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card:hover .mwi-r-profile { visibility: visible; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card { border-left-width: 1px; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-tag { font-size: 0; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-tag::before {\n    content: ''; display: block; width: 8px; height: 8px; border-radius: 50%; background: currentColor;\n}\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card.pending .mwi-r-tag { color: var(--r-muted); }\n#mwi-tracker-modal[data-size=\"medium\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }\n.mwi-r-card[data-player] { cursor: pointer; }\n\n/* Fiche joueur */\n.mwi-r-pview { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 8px; }\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-pview { display: flex; }\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-list,\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-toolbar,\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-chans-head,\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-chans { display: none; }\n#mwi-tracker-modal[data-view=\"guilds\"] .mwi-r-list,\n#mwi-tracker-modal[data-view=\"guilds\"] .mwi-r-toolbar,\n#mwi-tracker-modal[data-view=\"guilds\"] .mwi-r-chans-head,\n#mwi-tracker-modal[data-view=\"guilds\"] .mwi-r-chans { display: none; }\n.mwi-r-phead { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--r-border); }\n.mwi-r-pname { flex: 1; min-width: 0; font-size: 17px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.mwi-r-pview .mwi-r-profile { visibility: visible; }\n.mwi-r-ptabs { display: flex; flex-wrap: wrap; gap: 4px; }\n.mwi-r-ptab {\n    padding: 4px 10px; font-size: 12px; font-weight: 700; cursor: pointer;\n    color: var(--r-muted); background: var(--r-panel);\n    border: 1px solid var(--r-border); border-radius: 14px;\n    transition: color .15s, border-color .15s, background .15s;\n}\n.mwi-r-ptab:hover { color: var(--r-text); border-color: var(--r-accent); }\n.mwi-r-ptab.active { color: #fff; background: var(--r-accent); border-color: var(--r-accent); }\n.mwi-r-pbody {\n    flex: 1; min-height: 140px; max-height: 360px; overflow-y: auto; padding: 10px 12px;\n    background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px;\n}\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-pbody,\n#mwi-tracker-modal[data-sized=\"1\"] .mwi-r-pbody { max-height: none; }\n.mwi-r-pbody::-webkit-scrollbar { width: 8px; }\n.mwi-r-pbody::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }\n.mwi-r-pgrid { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: 13px; }\n.mwi-r-pgrid dt { color: var(--r-muted); }\n.mwi-r-pgrid dd { margin: 0; font-weight: 700; }\n.mwi-r-pstat.free { color: var(--r-ok); }\n.mwi-r-pstat.guild { color: var(--r-gold); }\n.mwi-r-pstat.fail { color: var(--r-err); }\n.mwi-r-pstat.pending { color: var(--r-muted); }\n.mwi-r-plines { list-style: none; margin: 0; padding: 0; columns: 220px; column-gap: 20px; font-size: 12px; }\n.mwi-r-plines li { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,.04); break-inside: avoid; }\n.mwi-r-ptab:focus { outline: none; }\n.mwi-r-rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 0 20px; margin: 0; font-size: 13px; }\n.mwi-r-row {\n    display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px;\n    padding: 6px 2px; border-bottom: 1px solid rgba(255,255,255,.06);\n}\n.mwi-r-row dt { color: var(--r-muted); }\n.mwi-r-row dd { margin: 0; font-weight: 700; color: var(--r-text); text-align: right; font-variant-numeric: tabular-nums; }\n.mwi-r-row.done dd { color: var(--r-ok); }\n.mwi-r-bar { flex-basis: 100%; height: 4px; background: var(--r-bg); border-radius: 2px; overflow: hidden; }\n.mwi-r-bar > div { height: 100%; background: var(--r-accent); border-radius: 2px; }\n.mwi-r-row.done .mwi-r-bar > div { background: var(--r-ok); }\n.mwi-r-solos { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 12px; }\n.mwi-r-solo-label { color: var(--r-muted); }\n.mwi-r-solo { padding: 2px 10px; font-weight: 700; color: var(--r-text); background: var(--r-bg); border: 1px solid var(--r-border); border-radius: 12px; }\n.mwi-r-solo-label ~ .mwi-r-solo { font-weight: 400; color: var(--r-muted); border-style: dashed; }\n/* Cases du profil : icône au centre, textes et badges dans les coins */\n.mwi-r-tiles {\n    --tile: 58px;\n    display: grid; grid-template-columns: repeat(auto-fill, var(--tile)); grid-auto-rows: var(--tile);\n    gap: 6px; margin-top: 10px; justify-content: start; overflow-x: auto; padding-bottom: 2px;\n}\n.mwi-r-tiles:first-child { margin-top: 0; }\n.mwi-r-tiles.placed { grid-template-columns: repeat(var(--cols), var(--tile)); }\n.mwi-r-tile {\n    position: relative; width: var(--tile); height: var(--tile);\n    display: flex; align-items: center; justify-content: center;\n    background: linear-gradient(160deg, var(--r-panel-2), var(--r-bg));\n    border: 1px solid var(--r-border); border-radius: 6px;\n    transition: border-color .15s, box-shadow .15s;\n}\n.mwi-r-tile:hover { border-color: var(--r-accent); box-shadow: 0 0 8px rgba(224, 52, 60, .35); }\n.mwi-r-tico { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; }\n.mwi-r-tico svg, .mwi-r-tico img { width: 40px; height: 40px; object-fit: contain; }\n.mwi-r-tt {\n    position: absolute; max-width: calc(100% - 4px); overflow: hidden; white-space: nowrap;\n    font-size: 11px; font-weight: 700; line-height: 1; color: var(--r-text);\n    text-shadow: 0 0 3px #000, 0 0 3px #000;\n}\n.mwi-r-tt.tl { top: 3px; left: 3px; }\n.mwi-r-tt.tc { top: 3px; left: 50%; transform: translateX(-50%); }\n.mwi-r-tt.tr { top: 3px; right: 3px; }\n.mwi-r-tt.bl { bottom: 3px; left: 3px; }\n.mwi-r-tt.bc { bottom: 3px; left: 50%; transform: translateX(-50%); }\n.mwi-r-tt.br { bottom: 3px; right: 3px; }\n.mwi-r-tt.plus { color: var(--r-warn); }\n.mwi-r-tt.num { color: var(--r-ok); }\n.mwi-r-tb { position: absolute; width: 16px; height: 16px; }\n.mwi-r-tb svg, .mwi-r-tb img { width: 16px; height: 16px; }\n.mwi-r-tb.tl { top: 2px; left: 2px; }\n.mwi-r-tb.tr { top: 2px; right: 2px; }\n.mwi-r-tb.bl { bottom: 2px; left: 2px; }\n.mwi-r-tb.br { bottom: 2px; right: 2px; }\n.mwi-r-tb.tc { top: 2px; left: calc(50% - 8px); }\n.mwi-r-tb.bc { bottom: 2px; left: calc(50% - 8px); }\n.mwi-r-tile.vide { background: none; border-style: dashed; opacity: .75; }\n.mwi-r-tname { padding: 2px; font-size: 9px; line-height: 1.15; text-align: center; color: var(--r-muted); overflow: hidden; }\n.mwi-r-sub { margin: 14px 0 6px; font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--r-muted); }\n.mwi-r-sub:first-child { margin-top: 0; }\n.mwi-r-psec .mwi-r-sub + .mwi-r-tiles, .mwi-r-sub + .mwi-r-tiles { margin-top: 0; }\n.mwi-r-pempty { margin: 10px 0 0; font-style: italic; color: var(--r-muted); font-size: 12px; }\n\n/* Petite fenêtre : un onglet à la fois. Modale large : toutes les sections répertoriées en colonnes, sans onglets */\n.mwi-r-pview { container-type: inline-size; container-name: mwi-pview; }\n.mwi-r-psec:not(.active) { display: none; }\n.mwi-r-psec-title { display: none; }\n@container mwi-pview (min-width: 880px) {\n    .mwi-r-ptabs { display: none; }\n    .mwi-r-pbody { padding: 0 4px 0 0; background: none; border: 0; border-radius: 0; }\n    .mwi-r-psecs { columns: 420px; column-gap: 12px; }\n    .mwi-r-psec, .mwi-r-psec:not(.active) {\n        display: block; break-inside: avoid; margin: 0 0 12px; padding: 12px 14px 14px;\n        background: linear-gradient(180deg, var(--r-panel-2), var(--r-panel) 46px);\n        border: 1px solid var(--r-border); border-top: 2px solid var(--r-accent); border-radius: 8px;\n        box-shadow: 0 2px 10px rgba(0,0,0,.35);\n    }\n    .mwi-r-psec-title {\n        display: flex; align-items: center; gap: 8px; margin: 0 0 12px;\n        font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--r-gold);\n    }\n    .mwi-r-psec-title::after { content: ''; flex: 1; height: 1px; background: var(--r-border); }\n    .mwi-r-psec .mwi-r-rows { grid-template-columns: 1fr; }\n    .mwi-r-psec .mwi-r-tiles { justify-content: center; }\n}\n/* Très grande modale : trois colonnes indépendantes (Skills | Résumé, Overview | Equipment), le reste réparti en dessous */\n.mwi-r-pcol { display: contents; }\n@container mwi-pview (min-width: 1200px) {\n    .mwi-r-psecs {\n        columns: auto; display: grid; gap: 12px; align-items: start;\n        grid-template-columns: minmax(0, .8fr) minmax(0, 1fr) minmax(400px, 1.1fr);\n    }\n    .mwi-r-pcol { display: flex; flex-direction: column; gap: 12px; min-width: 0; }\n    .mwi-r-psec, .mwi-r-psec:not(.active) { margin: 0; min-width: 0; }\n    /* Cases plus grandes, réparties sur toute la largeur de la section */\n    .mwi-r-psec .mwi-r-tiles {\n        --tile: clamp(58px, 4cqw, 72px); gap: 12px 8px; margin-top: 12px;\n        grid-template-columns: repeat(auto-fill, minmax(calc(var(--tile) + 14px), 1fr));\n        justify-content: stretch; justify-items: center;\n    }\n    .mwi-r-psec .mwi-r-tiles.placed { grid-template-columns: repeat(var(--cols), minmax(var(--tile), 1fr)); }\n    .mwi-r-psec .mwi-r-tico, .mwi-r-psec .mwi-r-tico svg, .mwi-r-psec .mwi-r-tico img { width: calc(var(--tile) - 18px); height: calc(var(--tile) - 18px); }\n    .mwi-r-psec .mwi-r-tt { font-size: 12px; }\n}\n\n/* Comparaison des guildes */\n.mwi-r-gview { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 8px; }\n#mwi-tracker-modal[data-view=\"guilds\"] .mwi-r-gview { display: flex; }\n.mwi-r-gcount { margin-left: 8px; font-size: 12px; font-weight: 400; color: var(--r-muted); }\n.mwi-r-gbody { flex: 1; min-height: 140px; max-height: 360px; overflow: auto; padding-right: 4px; }\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-gbody,\n#mwi-tracker-modal[data-sized=\"1\"] .mwi-r-gbody { max-height: none; }\n.mwi-r-gbody::-webkit-scrollbar { width: 8px; height: 8px; }\n.mwi-r-gbody::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }\n.mwi-r-gcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin-bottom: 12px; }\n.mwi-r-gcard {\n    padding: 10px 12px; cursor: pointer;\n    background: linear-gradient(180deg, var(--r-panel-2), var(--r-panel) 46px);\n    border: 1px solid var(--r-border); border-top: 2px solid var(--r-border); border-radius: 8px;\n    transition: border-color .15s;\n}\n.mwi-r-gcard:hover, .mwi-r-gcard.active { border-color: var(--r-accent); }\n.mwi-r-gcard h4 { margin: 0 0 4px; font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--r-gold); }\n.mwi-r-grank { font-size: 24px; font-weight: 700; line-height: 1.2; color: var(--r-text); }\n.mwi-r-gcard .mwi-r-rows { grid-template-columns: 1fr; font-size: 12px; }\n.mwi-r-rows + .mwi-r-gverdict { margin-top: 10px; }\n.mwi-r-gverdict { margin: 0 0 6px; padding: 5px 10px; font-size: 12px; font-weight: 700; color: var(--r-muted); background: var(--r-bg); border-left: 3px solid var(--r-muted); border-radius: 4px; }\n.mwi-r-gverdict.mieux { color: var(--r-err); border-left-color: var(--r-err); }\n.mwi-r-gverdict.moins { color: var(--r-ok); border-left-color: var(--r-ok); }\n.mwi-r-gverdict.egal { color: var(--r-warn); border-left-color: var(--r-warn); }\n.mwi-r-gtable { width: 100%; border-collapse: collapse; font-size: 12px; }\n.mwi-r-gtable th {\n    position: sticky; top: 0; z-index: 1; padding: 6px 8px; text-align: left; white-space: nowrap;\n    color: var(--r-muted); background: var(--r-panel-2); border-bottom: 2px solid var(--r-border);\n}\n.mwi-r-gtable th[data-action] { cursor: pointer; }\n.mwi-r-gtable th[data-action]:hover { color: var(--r-text); }\n.mwi-r-gtable th.active { color: var(--r-accent); border-bottom-color: var(--r-accent); }\n.mwi-r-gtable td { padding: 5px 8px; white-space: nowrap; border-bottom: 1px solid rgba(255,255,255,.05); }\n.mwi-r-gtable .n { text-align: right; font-variant-numeric: tabular-nums; }\n.mwi-r-gtable small { margin-left: 4px; color: var(--r-muted); }\n.mwi-r-gtable tbody tr:hover { background: var(--r-panel); }\n.mwi-r-gtable tr.moi td { font-weight: 700; color: var(--r-gold); background: var(--r-panel-2); border-bottom: 1px solid var(--r-accent); }\n\n.mwi-r-empty { padding: 18px 8px; text-align: center; font-style: italic; color: var(--r-muted); background: var(--r-panel); border: 1px dashed var(--r-border); border-radius: 6px; }\n\n.mwi-r-progress { height: 4px; background: var(--r-panel); border-radius: 2px; overflow: hidden; display: none; }\n.mwi-r-progress > div { height: 100%; width: 0; background: var(--r-accent); transition: width .2s; }\n\n.mwi-r-actions { display: flex; gap: 8px; }\n.mwi-r-actions .mwi-r-btn { flex: 1; }\n\n.mwi-r-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 11px; color: var(--r-muted); }\n#mwi-status.ok { color: var(--r-ok); }\n#mwi-status.warn { color: var(--r-warn); }\n#mwi-status.err { color: var(--r-err); }\n\n#mwi-radar-launcher {\n    position: fixed; bottom: 16px; right: 16px; z-index: 99998; display: none;\n    width: 44px; height: 44px; align-items: center; justify-content: center;\n    font-size: 20px; cursor: pointer; color: var(--r-accent);\n    background: var(--r-panel); border: 1px solid var(--r-border);\n    border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,.5);\n}\n#mwi-radar-launcher:hover { border-color: var(--r-accent); background: var(--r-panel-2); }\n";
 
     function loadUI() {
         try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch (e) { return {}; }
@@ -584,7 +697,7 @@ console.log('[Fabio RH] console-test :', "68cf50b - Leaderboard : lecture passiv
                         <button class="mwi-r-icon" data-size="medium" title="Cases moyennes"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><rect x="1" y="1" width="14" height="4" rx="1"/><rect x="1" y="6" width="14" height="4" rx="1"/><rect x="1" y="11" width="14" height="4" rx="1"/></svg></button>
                         <button class="mwi-r-icon" data-size="small" title="Petites cases : profil au survol"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><rect x="1" y="1" width="14" height="2" rx="1"/><rect x="1" y="4" width="14" height="2" rx="1"/><rect x="1" y="7" width="14" height="2" rx="1"/><rect x="1" y="10" width="14" height="2" rx="1"/><rect x="1" y="13" width="14" height="2" rx="1"/></svg></button>
                     </div>
-                    <button class="mwi-r-btn" id="mwi-btn-guilds" title="Comparer notre guilde aux autres (classements de guildes ouverts dans le jeu)">Guildes</button>
+                    <button class="mwi-r-btn" id="mwi-btn-guilds" title="Comparer notre guilde aux autres (données lues par le scan)">Guildes</button>
                     <button class="mwi-r-btn" id="mwi-btn-copy" title="Copier les pseudos affichés">Copier</button>
                     <button class="mwi-r-btn" id="mwi-btn-clear" title="Vider la liste">Vider</button>
                 </div>
@@ -593,13 +706,12 @@ console.log('[Fabio RH] console-test :', "68cf50b - Leaderboard : lecture passiv
                     <button class="mwi-r-icon" id="mwi-btn-chans" title="Rafraîchir la liste des canaux">↻</button>
                 </div>
                 <div class="mwi-r-chans" id="mwi-channels"></div>
-                <div class="mwi-r-lb" id="mwi-lb"></div>
                 <ul class="mwi-r-list" id="mwi-tracker-list"></ul>
                 <div class="mwi-r-pview" id="mwi-profile-view"></div>
                 <div class="mwi-r-gview" id="mwi-guild-view"></div>
                 <div class="mwi-r-progress" id="mwi-progress"><div id="mwi-progress-bar"></div></div>
                 <div class="mwi-r-actions">
-                    <button class="mwi-r-btn" id="mwi-btn-scan" title="Scanne les canaux de chat cochés">1. Scanner</button>
+                    <button class="mwi-r-btn" id="mwi-btn-scan" title="Scanne le chat puis le leaderboard du jeu">1. Scanner</button>
                     <button class="mwi-r-btn primary" id="mwi-btn-process">2. Vérifier Profils</button>
                 </div>
                 <div class="mwi-r-foot">
@@ -670,12 +782,10 @@ console.log('[Fabio RH] console-test :', "68cf50b - Leaderboard : lecture passiv
         const modeSelect = document.getElementById('mwi-mode-filter');
         currentMode = ['standard', 'ironcow'].includes(saved.modeFilter) ? saved.modeFilter : 'all';
         modeSelect.value = currentMode;
-        renderLeaderboard();
         modeSelect.addEventListener('change', (e) => {
             currentMode = e.target.value;
             saveUI({ modeFilter: currentMode });
             updateModalUI();
-            renderLeaderboard();
         });
         const sizeBtns = document.querySelectorAll('#mwi-size button');
         const setSize = (size) => {
@@ -977,7 +1087,7 @@ console.log('[Fabio RH] console-test :', "68cf50b - Leaderboard : lecture passiv
         const cats = [];
         guildes.forEach(g => Object.keys(g.stats).forEach(c => { if (!cats.includes(c)) cats.push(c); }));
         if (!cats.length) {
-            view.innerHTML = head + '<p class="mwi-r-pempty">Aucune guilde lue pour le moment : ouvre les classements de l\'onglet Guilds du leaderboard du jeu, ils sont lus au passage.</p>';
+            view.innerHTML = head + '<p class="mwi-r-pempty">Aucune guilde lue pour le moment : clique sur « 1. Scanner », qui parcourt aussi l\'onglet Guilds du leaderboard.</p>';
             return;
         }
         if (!cats.includes(guildSort)) guildSort = cats[0];
@@ -1030,7 +1140,7 @@ console.log('[Fabio RH] console-test :', "68cf50b - Leaderboard : lecture passiv
     function guildCompareHtml(nomGuilde) {
         if (!nomGuilde || nomGuilde === MA_GUILDE) return '';
         const titre = `<h4 class="mwi-r-sub">${esc(nomGuilde)} face à ${esc(MA_GUILDE)}</h4>`;
-        if (!guildes.size) return titre + '<p class="mwi-r-pempty">Classements des guildes pas encore lus : ouvre l\'onglet Guilds du leaderboard du jeu.</p>';
+        if (!guildes.size) return titre + '<p class="mwi-r-pempty">Classements des guildes pas encore lus : clique sur « 1. Scanner ».</p>';
         const g = guildes.get(nomGuilde), moi = guildes.get(MA_GUILDE);
         if (!moi) return titre + `<p class="mwi-r-pempty">${esc(MA_GUILDE)} absente des classements lus : comparaison impossible.</p>`;
         const rang = (x, c) => x && x.stats[c] && isFinite(x.stats[c].rang) ? x.stats[c].rang : null;

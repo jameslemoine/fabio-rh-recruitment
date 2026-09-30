@@ -89,14 +89,6 @@
 .mwi-r-chan.iron:has(input:checked) { border-color: var(--r-warn); }
 .mwi-r-chan input { margin: 0; accent-color: var(--r-accent); }
 .mwi-r-chan-empty { font-size: 11px; font-style: italic; color: var(--r-muted); }
-/* Suivi des classements du leaderboard lus au passage */
-.mwi-r-lb { font-size: 11px; color: var(--r-muted); }
-.mwi-r-lb summary { cursor: pointer; user-select: none; }
-.mwi-r-lbg { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; margin-top: 4px; }
-.mwi-r-lbg b { flex: 0 0 64px; color: var(--r-text); }
-.mwi-r-lbc { padding: 1px 6px; background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 8px; opacity: .7; }
-.mwi-r-lbc.lu { color: var(--r-ok); border-color: var(--r-ok); opacity: 1; }
-#mwi-tracker-modal[data-view="profile"] .mwi-r-lb { display: none; }
 .mwi-r-iron { font-size: 11px; font-weight: 700; color: var(--r-warn); margin-left: 4px; }
 .mwi-r-select {
     flex: 0 1 150px; padding: 5px 8px; color: var(--r-text);
