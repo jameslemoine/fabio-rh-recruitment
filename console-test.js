@@ -1,7 +1,7 @@
 // Fichier généré par tools/build-console.js - ne pas modifier à la main.
 // Coller tout le contenu dans la console du jeu (F12) pour tester sans Tampermonkey.
-// Version : 56d4001 - Leaderboard : racine d'origine rétablie, contenu lu dans le panneau de classement affiché
-console.log('[Fabio RH] console-test :', "56d4001 - Leaderboard : racine d'origine rétablie, contenu lu dans le panneau de classement affiché");
+// Version : 0b0cf65 - Fabio RH 1.17 : CSS épinglé sur la nouvelle version
+console.log('[Fabio RH] console-test :', "0b0cf65 - Fabio RH 1.17 : CSS épinglé sur la nouvelle version");
 (function() {
     'use strict';
 
