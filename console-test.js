@@ -1,7 +1,7 @@
 // Fichier généré par tools/build-console.js - ne pas modifier à la main.
 // Coller tout le contenu dans la console du jeu (F12) pour tester sans Tampermonkey.
-// Version : 4c536c2 - Fabio RH 1.16 : CSS épinglé sur la nouvelle version
-console.log('[Fabio RH] console-test :', "4c536c2 - Fabio RH 1.16 : CSS épinglé sur la nouvelle version");
+// Version : 56d4001 - Leaderboard : racine d'origine rétablie, contenu lu dans le panneau de classement affiché
+console.log('[Fabio RH] console-test :', "56d4001 - Leaderboard : racine d'origine rétablie, contenu lu dans le panneau de classement affiché");
 (function() {
     'use strict';
 
@@ -326,20 +326,28 @@ console.log('[Fabio RH] console-test :', "4c536c2 - Fabio RH 1.16 : CSS épingl�
 
     // Page Leaderboard du jeu (les pages non affichées restent dans le document, masquées) :
     // le panneau nommé par le jeu, sinon le bloc autour de l'onglet "Guilds" qui contient aussi le tableau
-    // Chaque classement a son propre TabPanel (les autres restent dans le document en "TabPanel_hidden") :
-    // on renvoie le bloc qui contient à la fois les onglets et tous les panneaux, pas le panneau affiché
     function findLeaderboard() {
         const panel = Array.from(document.querySelectorAll('[class*="LeaderboardPanel"]')).find(visible);
-        let el = panel || tabEl(document.body, 'Guilds');
-        while (el && el !== document.body && !(tabEl(el, 'Guilds') && /Rank[\s\S]*Name/.test(el.textContent))) el = el.parentElement;
+        if (panel) return panel;
+        let el = tabEl(document.body, 'Guilds');
+        while (el && el !== document.body && !/Rank[\s\S]*Name/.test(el.textContent)) el = el.parentElement;
         return el && el !== document.body ? el : null;
     }
 
-    // Joueurs du classement affiché (panneaux masqués ignorés) : composant CharacterName du jeu, sinon 2e colonne du tableau
+    // Chaque classement a son propre TabPanel ; les autres restent dans le document en "TabPanel_hidden".
+    // Le contenu est donc cherché dans le panneau de classement affiché, pas dans la racine trouvée au départ.
+    const masque = (e) => !!e.closest('[class*="TabPanel_hidden"], [hidden]');
+    function panneauAffiche(root) {
+        const tous = Array.from(document.querySelectorAll('[class*="LeaderboardPanel_content"]')).filter(e => !masque(e) && visible(e));
+        return tous[0] || root;
+    }
+
+    // Joueurs du classement affiché : composant CharacterName du jeu, sinon 2e colonne du tableau
     function leaderboardPlayers(root) {
-        const els = Array.from(root.querySelectorAll('[class*="CharacterName_name"][data-name]')).filter(e => e.offsetParent !== null);
+        const box = panneauAffiche(root);
+        const els = Array.from(box.querySelectorAll('[class*="CharacterName_name"][data-name]')).filter(e => !masque(e));
         if (els.length) return els.map(readCharacterName);
-        return Array.from(root.querySelectorAll('tr'), tr => tr.children[1] && tr.offsetParent !== null ? txt(tr.children[1]) : '')
+        return Array.from(box.querySelectorAll('tr'), tr => tr.children[1] && !masque(tr) ? txt(tr.children[1]) : '')
             .filter(n => n && n !== 'Name').map(username => ({ username, ironcow: false, color: '' }));
     }
 
@@ -440,7 +448,7 @@ console.log('[Fabio RH] console-test :', "4c536c2 - Fabio RH 1.16 : CSS épingl�
 
     // Tableau affiché sur la page : en-têtes nettoyés (sans flèches de tri) et lignes de cellules
     function readTable(root) {
-        const table = Array.from(root.querySelectorAll('table')).find(visible);
+        const table = Array.from(panneauAffiche(root).querySelectorAll('table')).find(t => visible(t) && !masque(t));
         if (!table) return null;
         const trs = Array.from(table.querySelectorAll('tr'));
         const head = trs.find(tr => tr.querySelector('th')) || trs[0];
