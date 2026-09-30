@@ -10,6 +10,7 @@
 // @copyright    2026 Fabio Lucci - Tous droits reserves - Yloise
 // @resource     FABIO_CSS https://cdn.jsdelivr.net/gh/jameslemoine/fabio-rh-recruitment@c95669408249ed233ccf015b0cde98682a59e908/fabio-rh.css
 // @grant        GM_getResourceText
+// @grant        unsafeWindow
 // @license      All Rights Reserved; This script is proprietary and cannot be copied, modified, or distributed without explicit permission.
 // ==/UserScript==
 
@@ -45,6 +46,40 @@
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     const log = (...a) => console.log('[Radar]', ...a);
     const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    // ---------------------------------------------------------------
+    // 0. Données brutes des profils
+    // ---------------------------------------------------------------
+    // À chaque /profile, le serveur envoie au jeu un message "profile_shared" avec toutes les données du joueur
+    // (skills, équipement, capacités, consommables et déclencheurs de combat, maison, sanctuaires...).
+    // On l'écoute au passage, sans rien envoyer : plus fiable et plus complet que la lecture de l'écran.
+    const profilsBruts = new Map(); // pseudo -> profil
+    const page = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+    const toPage = (fn) => typeof exportFunction === 'function' ? exportFunction(fn, page) : fn;
+    try {
+        page.__fabioOnProfile = toPage((json) => {
+            try {
+                const msg = JSON.parse(json);
+                const nom = msg.type === 'profile_shared' && msg.profile && msg.profile.sharableCharacter && msg.profile.sharableCharacter.name;
+                if (nom) profilsBruts.set(nom, msg.profile);
+            } catch (e) { }
+        });
+        // Un seul crochet par page, même si le script est relancé (console) : il appelle le dernier __fabioOnProfile
+        if (!page.__fabioHook) {
+            const desc = Object.getOwnPropertyDescriptor(page.MessageEvent.prototype, 'data');
+            const get = toPage(function() {
+                const d = desc.get.call(this);
+                if (typeof d === 'string' && d.includes('"profile_shared"')) {
+                    try { page.__fabioOnProfile(d); } catch (e) { }
+                }
+                return d;
+            });
+            Object.defineProperty(page.MessageEvent.prototype, 'data', { configurable: true, enumerable: desc.enumerable, get });
+            page.__fabioHook = true;
+        }
+    } catch (e) {
+        log('Écoute des profils impossible, lecture à l\'écran uniquement :', e);
+    }
 
     // ---------------------------------------------------------------
     // 1. Scanner le chat (Cible précisément les onglets du jeu via data-mention-channel)
@@ -345,6 +380,7 @@
         if (!modal) return;
         modal.dataset.mode = mode;
         saveUI({ mode });
+        if (currentProfile) renderProfileView(); // la répartition en colonnes dépend de la largeur
         const maxBtn = document.getElementById('mwi-btn-max');
         const minBtn = document.getElementById('mwi-btn-min');
         if (maxBtn) { maxBtn.textContent = mode === 'max' ? '❐' : '□'; maxBtn.title = mode === 'max' ? 'Restaurer' : 'Agrandir'; }
@@ -434,6 +470,7 @@
             st = null;
             modal.style.cursor = '';
             saveUI({ left: modal.style.left, top: modal.style.top, width: modal.style.width, height: modal.style.height });
+            if (currentProfile) renderProfileView();
         });
     }
 
@@ -603,17 +640,179 @@
 
     // Texte brut d'un onglet : regroupe chaque libellé avec la valeur qui le suit
     const isValue = (l) => /^[\d\s.,  /()%+-]+$|^\d|^(?:\d+y\s*)?\d+d$|^Floor/i.test(l);
-    function linesToHtml(lignes) {
-        const items = [];
-        for (let i = 0; i < lignes.length; i++) {
-            const l = lignes[i], next = lignes[i + 1];
-            if (/of$/i.test(l) && next) { items.push([l.replace(/\s*of$/i, ''), next]); i++; }  // "Officer of" + guilde
-            else if (!isValue(l) && next !== undefined && isValue(next)) { items.push([l, next]); i++; }
-            else items.push([null, l]);
+    const isLabel = (l) => /(?:Level|Points|Floor|Age|Achievements)$/i.test(l);
+    const cleanLine = (l) => String(l).replace(/[\u200b-\u200f\u2060\ufeff]/g, '').trim();
+    // Lignes "libellé ........ valeur" comme dans le jeu (avec une jauge pour les "x / y"),
+    // précédées des textes isolés sous forme d'étiquettes (soloLabel : ce qu'ils représentent)
+    // groupRe : chaque ligne qui correspond ouvre un groupe, les suivantes en sont le détail (sanctuaires)
+    function linesToHtml(lignes, soloLabel, groupRe) {
+        const rows = [], solos = [];
+        lignes = lignes.map(cleanLine).filter(Boolean);
+        for (let i = 0; groupRe && i < lignes.length; i++) {
+            const l = lignes[i], last = rows[rows.length - 1];
+            if (groupRe.test(l)) rows.push([l, '']);
+            else if (last) last[1] += (last[1] ? ' · ' : '') + l;
+            else solos.push(l);
         }
-        return `<div class="mwi-r-pairs">${items.map(([k, v]) => k
-            ? `<div class="mwi-r-pair"><span>${esc(k)}</span><b>${esc(v)}</b></div>`
-            : `<div class="mwi-r-pair solo"><b>${esc(v)}</b></div>`).join('')}</div>`;
+        for (let i = 0; !groupRe && i < lignes.length; i++) {
+            const l = lignes[i], next = lignes[i + 1];
+            if (/\bof$/i.test(l) && next) { rows.push([l, next]); i++; }  // "Officer of" + guilde
+            else if (!isValue(l) && next !== undefined && (isValue(next) || isLabel(l))) { rows.push([l, next]); i++; }
+            else if (/^\(?\d+\s*\/\s*\d+\)?$/.test(l)) rows.push(['Achievements', l]); // libellé homonyme d'un onglet, retiré à la lecture
+            else solos.push(l);
+        }
+        return (solos.length ? `<div class="mwi-r-solos">${soloLabel ? `<span class="mwi-r-solo-label">${esc(soloLabel)}</span>` : ''}${
+            solos.map(s => `<span class="mwi-r-solo">${esc(s)}</span>`).join('')}</div>` : '') + rowsToHtml(rows);
+    }
+
+    // Lignes [libellé, valeur] ; une valeur "x / y" reçoit une jauge
+    function rowsToHtml(rows) {
+        if (!rows.length) return '';
+        return `<dl class="mwi-r-rows">${rows.map(([k, v]) => {
+            const m = String(v).match(/^\(?(\d+)\s*\/\s*(\d+)\)?$/);
+            if (!m) return `<div class="mwi-r-row"><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`;
+            const pct = +m[2] ? Math.min(100, Math.round(m[1] / m[2] * 100)) : 0;
+            return `<div class="mwi-r-row${pct === 100 ? ' done' : ''}"><dt>${esc(k)}</dt><dd>${m[1]} / ${m[2]}</dd>
+                <div class="mwi-r-bar"><div style="width: ${pct}%"></div></div></div>`;
+        }).join('')}</dl>`;
+    }
+
+    // Section lue à l'écran (cases et lignes de texte d'un onglet du profil)
+    function domSectionHtml(s) {
+        // Achievements et sanctuaires : pas d'icônes, seulement les noms et leur valeur
+        const shrine = /shrine/i.test(s.titre);
+        const tuiles = shrine || /achievement|succ[èe]s/i.test(s.titre) ? [] : (s.tuiles || []);
+        // Dans l'équipement, un texte isolé est le nom d'un emplacement vide
+        const soloLabel = tuiles.length && /equip/i.test(s.titre) ? 'Vide :' : '';
+        return tuiles.length || s.lignes.length
+            ? (s.lignes.length ? linesToHtml(s.lignes, soloLabel, shrine ? /^shrine/i : null) : '') + tilesToHtml(tuiles, /skill/i.test(s.titre))
+            : '<p class="mwi-r-pempty">Rien dans cet onglet.</p>';
+    }
+
+    // --- Sections construites à partir des données brutes du profil ---
+    const hridName = (h) => String(h || '').split('/').pop();
+    const pretty = (h) => hridName(h).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    const nb = (n) => isFinite(n) && n !== '' && n !== null ? Number(n).toLocaleString('fr-FR') : String(n);
+
+    // Adresse d'une planche d'icônes du jeu (items, skills, abilities), retrouvée dans la page ou les fichiers chargés
+    const sprites = {}, spritesMiss = {};
+    function spriteUrl(kind) {
+        if (sprites[kind]) return sprites[kind];
+        if (Date.now() - (spritesMiss[kind] || 0) < 3000) return '';
+        const re = new RegExp(`[^"'\\s#]*/${kind}_sprite\\.[^"'\\s#]*\\.svg`);
+        const hrefs = Array.from(document.querySelectorAll('use'), u => u.getAttribute('href') || u.getAttribute('xlink:href') || '')
+            .concat(performance.getEntriesByType('resource').map(e => e.name));
+        const hit = hrefs.map(h => (h.match(re) || [])[0]).find(Boolean);
+        if (!hit) spritesMiss[kind] = Date.now();
+        return hit ? (sprites[kind] = hit) : '';
+    }
+    // Sans planche trouvée, la case affiche le nom à la place de l'icône
+    const spriteIcon = (kind, hrid) => {
+        const url = spriteUrl(kind);
+        return url ? `<svg><use href="${esc(url)}#${esc(hridName(hrid))}"></use></svg>` : '';
+    };
+
+    const SKILLS = ['milking', 'foraging', 'woodcutting', 'cheesesmithing', 'crafting', 'tailoring', 'cooking', 'brewing', 'alchemy',
+        'enhancing', 'stamina', 'intelligence', 'attack', 'defense', 'melee', 'ranged', 'magic'];
+    const ROOMS = ['dairy_barn', 'garden', 'log_shed', 'forge', 'workshop', 'sewing_parlor', 'kitchen', 'brewery', 'laboratory',
+        'observatory', 'dining_room', 'library', 'dojo', 'armory', 'gym', 'archery_range', 'mystical_study'];
+    // Emplacement d'équipement -> [colonne, ligne], comme dans le jeu
+    const SLOTS = {
+        back: [0, 0], head: [1, 0], trinket: [2, 0], neck: [4, 0],
+        main_hand: [0, 1], body: [1, 1], off_hand: [2, 1], earrings: [4, 1],
+        hands: [0, 2], legs: [1, 2], pouch: [2, 2], ring: [4, 2],
+        feet: [1, 3], charm: [4, 3],
+        milking_tool: [0, 4], foraging_tool: [1, 4], woodcutting_tool: [2, 4], cheesesmithing_tool: [3, 4], crafting_tool: [4, 4],
+        tailoring_tool: [0, 5], cooking_tool: [1, 5], brewing_tool: [2, 5], alchemy_tool: [3, 5], enhancing_tool: [4, 5]
+    };
+    const TRIGGER_FR = {
+        self: 'Soi', targeted_enemy: 'Cible', all_enemies: 'Ennemis', all_allies: 'Alliés',
+        current_hp: 'PV', current_mp: 'PM', missing_hp: 'PV manquants', missing_mp: 'PM manquants',
+        number_of_active_units: 'nombre en vie',
+        greater_than_equal: '≥', less_than_equal: '≤', is_active: 'actif', is_inactive: 'inactif'
+    };
+    const trig = (h) => TRIGGER_FR[hridName(h)] || pretty(h);
+    // "Soi : PV manquants ≥ 150", plusieurs conditions reliées par "et"
+    const triggersText = (list) => (list || []).map(t => {
+        const cmp = hridName(t.comparatorHrid);
+        return `${trig(t.dependencyHrid)} : ${trig(t.conditionHrid)} ${trig(t.comparatorHrid)}${/^is_/.test(cmp) ? '' : ' ' + nb(t.value)}`;
+    }).join(' et ');
+
+    function sectionsFromData(b, p, dom) {
+        const c = b.sharableCharacter || {};
+        const levels = new Map((b.characterSkills || []).map(s => [hridName(s.skillHrid), s.level]));
+        const done = (b.characterAchievements || []).filter(a => a.isCompleted).length;
+        const sub = (t) => `<h4 class="mwi-r-sub">${esc(t)}</h4>`;
+        const sections = [];
+
+        const etat = [c.actionType && pretty(c.actionType), c.hideOnlineStatus ? '' : (c.isOnline ? 'En ligne' : 'Hors ligne')].filter(Boolean).join(' · ');
+        const overview = [];
+        if (b.guildName) overview.push([`${pretty(b.guildRole)} of`, b.guildName]);
+        if (etat) overview.push(['Activité', etat]);
+        overview.push(['Total Level', nb(levels.has('total_level') ? levels.get('total_level') : p.stats.total)],
+            ['Combat Level', nb(Math.floor(b.combatLevel))],
+            ['Achievements réalisés', nb(done)],
+            ['Task Points', nb(b.totalTaskPoints)],
+            ['Labyrinth Points', nb(b.labyrinthPoints)]);
+        if (b.labyrinthHighestFloor) overview.push(['Highest Floor', `Floor ${b.labyrinthHighestFloor} (${b.labyrinthHighestFloorRooms} Rooms)`]);
+        overview.push(['Collection Points', nb(b.collectionPoints)], ['Bestiary Points', nb(b.bestiaryPoints)], ['Age', p.stats.age]);
+        sections.push({ titre: 'Overview', html: rowsToHtml(overview) });
+
+        sections.push({ titre: 'Skills', html: tilesToHtml(SKILLS.filter(k => levels.has(k)).map(k => ({
+            icone: spriteIcon('skills', k), nom: pretty(k), textes: [{ t: `Lv.${levels.get(k)}`, coin: 'tl' }]
+        })), true) });
+
+        if (b.hideWearableItems) {
+            sections.push({ titre: 'Equipment', html: '<p class="mwi-r-pempty">Équipement masqué par le joueur.</p>' });
+        } else {
+            const worn = {};
+            Object.values(b.wearableItemMap || {}).forEach(it => {
+                const loc = hridName(it.itemLocationHrid);
+                worn[loc === 'two_hand' ? 'main_hand' : loc] = it;
+            });
+            let extra = 0;
+            const tuiles = Object.keys(SLOTS).concat(Object.keys(worn).filter(k => !SLOTS[k])).map(loc => {
+                const it = worn[loc], [col, row] = SLOTS[loc] || [extra++, 6];
+                return it ? {
+                    icone: spriteIcon('items', it.itemHrid), nom: pretty(it.itemHrid), col, row,
+                    textes: it.enhancementLevel ? [{ t: `+${it.enhancementLevel}`, coin: 'tl' }] : []
+                } : { icone: '', nom: pretty(loc), vide: true, col, row, textes: [] };
+            });
+            sections.push({ titre: 'Equipment', html: tilesToHtml(tuiles) });
+        }
+
+        // Build de combat en cours : capacités, consommables et leurs conditions de déclenchement
+        const abilities = [...(b.equippedAbilities || [])].sort((x, y) => x.slotNumber - y.slotNumber);
+        const consos = b.combatConsumables || [];
+        if (abilities.length || consos.length) {
+            const triggers = abilities.map(a => [pretty(a.abilityHrid), triggersText((b.abilityCombatTriggersMap || {})[a.abilityHrid])])
+                .concat(consos.map(i => [pretty(i.itemHrid), triggersText((b.consumableCombatTriggersMap || {})[i.itemHrid])]))
+                .filter(r => r[1]);
+            sections.push({ titre: 'Combat', html:
+                (abilities.length ? sub('Capacités') + tilesToHtml(abilities.map(a => ({
+                    icone: spriteIcon('abilities', a.abilityHrid), nom: pretty(a.abilityHrid), textes: [{ t: `Lv.${a.level}`, coin: 'tl' }]
+                })), true) : '')
+                + (consos.length ? sub('Consommables') + tilesToHtml(consos.map(i => ({
+                    icone: spriteIcon('items', i.itemHrid), nom: pretty(i.itemHrid), textes: []
+                })), true) : '')
+                + (triggers.length ? sub('Déclencheurs') + rowsToHtml(triggers) : '') });
+        }
+
+        const rooms = Object.values(b.characterHouseRoomMap || {}).filter(r => r.level > 0)
+            .sort((x, y) => ROOMS.indexOf(hridName(x.houseRoomHrid)) - ROOMS.indexOf(hridName(y.houseRoomHrid)));
+        sections.push({ titre: 'House', html: rowsToHtml([['Pièces construites', `${rooms.length} / ${ROOMS.length}`]]
+            .concat(rooms.map(r => [pretty(r.houseRoomHrid), `Niv. ${r.level}`]))) });
+
+        const shrines = Object.entries(b.guildBuffLevelMap || {}).filter(([, lvl]) => lvl > 0).sort();
+        if (shrines.length) sections.push({ titre: 'Shrines', html: rowsToHtml(shrines.map(([h, lvl]) => {
+            const [nom, type] = hridName(h).split(/_(?=[^_]+$)/);
+            return [`Shrine of ${pretty(nom)} · ${pretty(type)}`, `Niv. ${lvl}`];
+        })) });
+
+        // Le détail par groupe n'est pas dans les données : il vient de l'onglet Achievements lu à l'écran
+        const ach = dom.find(s => /achievement/i.test(s.titre));
+        sections.push({ titre: 'Achievements', html: ach && ach.lignes.length ? domSectionHtml(ach) : rowsToHtml([['Réalisés', nb(done)]]) });
+        return sections;
     }
 
     function renderProfileView() {
@@ -623,27 +822,29 @@
         const cat = playerCategory(p);
         const statut = { free: 'Sans guilde', guild: 'En guilde', fail: 'Profil illisible', pending: 'En attente' }[cat];
         const nameStyle = p.color ? `color: ${p.color};` : '';
+        const brut = profilsBruts.get(p.nom);
 
         const resume = `<dl class="mwi-r-pgrid">
                 <dt>Statut</dt><dd class="mwi-r-pstat ${cat}">${statut}</dd>
                 <dt>Mode</dt><dd>${p.ironcow ? '🐄 Ironcow' : 'Standard'}</dd>
                 ${cat === 'guild' ? `<dt>Guilde</dt><dd>${esc(p.guilde)}</dd><dt>Rang</dt><dd>${esc(p.rang)}</dd>` : ''}
-                <dt>🛡️ Total</dt><dd>${esc(p.stats.total)}</dd>
+                ${p.profil || brut ? '' : `<dt>🛡️ Total</dt><dd>${esc(p.stats.total)}</dd>
                 <dt>⚔️ Combat</dt><dd>${esc(p.stats.combat)}</dd>
-                <dt>⏳ Age</dt><dd>${esc(p.stats.age)}</dd>
+                <dt>⏳ Age</dt><dd>${esc(p.stats.age)}</dd>`}
             </dl>`;
+        const dom = (p.profil && p.profil.sections) || [];
         const sections = [{ titre: 'Résumé', html: resume }].concat(
-            ((p.profil && p.profil.sections) || []).map(s => ({
-                titre: s.titre,
-                html: (s.tuiles && s.tuiles.length) || s.lignes.length
-                    ? (s.lignes.length ? linesToHtml(s.lignes) : '') + tilesToHtml(s.tuiles || [])
-                    : '<p class="mwi-r-pempty">Rien dans cet onglet.</p>'
-            })));
+            brut ? sectionsFromData(brut, p, dom) : dom.map(s => ({ titre: s.titre, html: domSectionHtml(s) })));
         if (currentSection >= sections.length) currentSection = 0;
-        const hint = p.profil ? '' : `<p class="mwi-r-pempty">${p.verifie
+        const hint = p.profil || brut ? '' : `<p class="mwi-r-pempty">${p.verifie
             ? 'Détails non récupérés pour ce joueur : relance la vérification.'
             : 'Profil pas encore vérifié : clique sur « 2. Vérifier Profils » pour récupérer toutes les infos.'}</p>`;
 
+        // Toutes les sections sont dans la page : le CSS n'affiche que l'onglet actif en petite fenêtre,
+        // et les répertorie toutes côte à côte (sans onglets) quand la modale est large
+        const keys = sections.map((s, i) => i === 0 ? 'resume' : /skill/i.test(s.titre) ? 'skills'
+            : /overview/i.test(s.titre) ? 'overview' : /equip/i.test(s.titre) ? 'equipment' : 'autre');
+        const scroll = view.querySelector('.mwi-r-pbody')?.scrollTop || 0;
         view.innerHTML = `
             <div class="mwi-r-phead">
                 <button class="mwi-r-btn" data-action="back" title="Retour à la liste">← Retour</button>
@@ -653,20 +854,46 @@
             <div class="mwi-r-ptabs">${sections.map((s, i) =>
                 `<button class="mwi-r-ptab${i === currentSection ? ' active' : ''}" data-action="section" data-index="${i}">${esc(s.titre)}</button>`).join('')}
             </div>
-            <div class="mwi-r-pbody">${sections[currentSection].html}${currentSection === 0 ? hint : ''}</div>`;
+            <div class="mwi-r-pbody"><div class="mwi-r-psecs">${sections.map((s, i) =>
+                `<section class="mwi-r-psec${i === currentSection ? ' active' : ''}" data-key="${keys[i]}">
+                    <h3 class="mwi-r-psec-title">${esc(s.titre)}</h3>
+                    ${s.html}${i === 0 ? hint : ''}
+                </section>`).join('')}
+            </div></div>`;
+
+        // Très grande modale : trois colonnes. Skills à gauche, Résumé puis Overview au milieu, Equipment à droite,
+        // et chaque autre section sous la colonne la moins haute (les colonnes sont sans effet en petite fenêtre)
+        const psecs = view.querySelector('.mwi-r-psecs');
+        const secs = Array.from(psecs.children);
+        const cols = [0, 1, 2].map(() => {
+            const c = document.createElement('div');
+            c.className = 'mwi-r-pcol';
+            return psecs.appendChild(c);
+        });
+        const place = { skills: 0, resume: 1, overview: 1, equipment: 2 };
+        secs.filter(s => s.dataset.key in place).forEach(s => cols[place[s.dataset.key]].appendChild(s));
+        secs.filter(s => !(s.dataset.key in place)).forEach((s, n) => {
+            const h = cols.map(c => c.offsetHeight);
+            const col = h.some(Boolean) ? cols[h.indexOf(Math.min(...h))] : cols[1 + n % 2];
+            col.appendChild(s);
+        });
+        view.querySelector('.mwi-r-pbody').scrollTop = scroll;
     }
 
-    function tilesToHtml(tuiles) {
+    // flow : cases à la suite dans l'ordre du jeu, sans reprendre sa grille (autant par ligne que la largeur le permet)
+    function tilesToHtml(tuiles, flow) {
         if (!tuiles.length) return '';
-        const placed = tuiles.every(t => t.col !== undefined);
+        const located = tuiles.every(t => t.col !== undefined);
+        if (flow && located) tuiles = [...tuiles].sort((a, b) => a.row - b.row || a.col - b.col);
+        const placed = located && !flow;
         const cols = placed ? Math.max(...tuiles.map(t => t.col)) + 1 : 0;
-        const style = placed ? ` style="grid-template-columns: repeat(${cols}, var(--tile))"` : '';
+        const style = placed ? ` style="--cols: ${cols}"` : '';
         const valueClass = (t) => /^\+\d/.test(t) ? ' plus' : /^[\d\s., ]+[kKmM]?$/.test(t) ? ' num' : '';
         return `<div class="mwi-r-tiles${placed ? ' placed' : ''}"${style}>${tuiles.map(t => {
             const textes = t.textes || (t.texte ? [{ t: t.texte, coin: 'tl' }] : []);
             const pos = placed ? ` style="grid-column: ${t.col + 1}; grid-row: ${t.row + 1}"` : '';
-            return `<div class="mwi-r-tile"${pos} title="${esc(t.nom || textes.map(x => x.t).join(' '))}">
-                <div class="mwi-r-tico">${t.icone}</div>
+            return `<div class="mwi-r-tile${t.vide ? ' vide' : ''}"${pos} title="${esc(t.nom || textes.map(x => x.t).join(' '))}">
+                ${t.icone ? `<div class="mwi-r-tico">${t.icone}</div>` : `<span class="mwi-r-tname">${esc(t.nom || '')}</span>`}
                 ${textes.map(x => `<span class="mwi-r-tt ${x.coin}${valueClass(x.t)}">${esc(x.t)}</span>`).join('')}
                 ${(t.badges || []).map(bd => `<span class="mwi-r-tb ${bd.coin}">${bd.icone}</span>`).join('')}
             </div>`;
@@ -982,14 +1209,16 @@
 
     // Parcourt chaque onglet puis revient au premier ; le contenu d'un onglet est repéré
     // grâce aux lignes qui ont changé par rapport à l'onglet affiché juste avant
-    async function readProfileTabs(profileEl) {
+    // filtre : ne lire que les onglets dont le nom correspond (le reste vient des données brutes)
+    async function readProfileTabs(profileEl, filtre) {
         const found = findProfileTabs(profileEl);
         if (!found || found.tabs.length === 0) return { root: profileEl, sections: [{ titre: 'Profil', lignes: textLines(profileEl) }] };
 
         const { root, tablist, tabs } = found;
         const labels = tabs.map(t => (t.innerText || t.textContent || '').trim() || 'Onglet');
         const raw = new Array(tabs.length), data = new Array(tabs.length);
-        const order = tabs.length > 1 ? [...tabs.keys(), 0] : [0];
+        const voulus = [...tabs.keys()].filter(i => i === 0 || !filtre || filtre.test(labels[i]));
+        const order = tabs.length > 1 ? [...voulus, 0] : [0];
         let prevLines = null;
         for (let step = 0; step < order.length; step++) {
             const i = order[step];
@@ -1015,7 +1244,7 @@
             titre: labels[i],
             tuiles: data[i] ? data[i].tuiles : [],
             lignes: (data[i] ? data[i].lignes : lignes).filter(l => !common.has(l))
-        })) };
+        })).filter(Boolean) };
     }
 
     async function analyzeProfile(username) {
@@ -1061,7 +1290,8 @@
 
         // Lecture de chaque onglet du profil (sections affichées ensuite dans la fiche du joueur)
         try {
-            const lecture = await readProfileTabs(found.el);
+            // Avec les données brutes, seul l'onglet Achievements (détail par groupe) reste à lire à l'écran
+            const lecture = await readProfileTabs(found.el, profilsBruts.has(username) ? /achievement/i : null);
             if (lecture.sections.length) playerData.profil = { sections: lecture.sections, lu: Date.now() };
             // Le jeu a pu redessiner le bloc en changeant d'onglet : on ferme via le conteneur des onglets
             if (!found.el.isConnected) found.el = lecture.root;

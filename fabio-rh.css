@@ -210,14 +210,21 @@
 .mwi-r-plines { list-style: none; margin: 0; padding: 0; columns: 220px; column-gap: 20px; font-size: 12px; }
 .mwi-r-plines li { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,.04); break-inside: avoid; }
 .mwi-r-ptab:focus { outline: none; }
-.mwi-r-pairs { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px; }
-.mwi-r-pair {
-    display: flex; flex-direction: column; gap: 2px; padding: 6px 10px;
-    background: var(--r-bg); border: 1px solid var(--r-border); border-left: 3px solid var(--r-accent); border-radius: 5px;
+.mwi-r-rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 0 20px; margin: 0; font-size: 13px; }
+.mwi-r-row {
+    display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px;
+    padding: 6px 2px; border-bottom: 1px solid rgba(255,255,255,.06);
 }
-.mwi-r-pair span { font-size: 11px; color: var(--r-muted); }
-.mwi-r-pair b { font-size: 14px; color: var(--r-text); }
-.mwi-r-pair.solo { justify-content: center; }
+.mwi-r-row dt { color: var(--r-muted); }
+.mwi-r-row dd { margin: 0; font-weight: 700; color: var(--r-text); text-align: right; font-variant-numeric: tabular-nums; }
+.mwi-r-row.done dd { color: var(--r-ok); }
+.mwi-r-bar { flex-basis: 100%; height: 4px; background: var(--r-bg); border-radius: 2px; overflow: hidden; }
+.mwi-r-bar > div { height: 100%; background: var(--r-accent); border-radius: 2px; }
+.mwi-r-row.done .mwi-r-bar > div { background: var(--r-ok); }
+.mwi-r-solos { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 12px; }
+.mwi-r-solo-label { color: var(--r-muted); }
+.mwi-r-solo { padding: 2px 10px; font-weight: 700; color: var(--r-text); background: var(--r-bg); border: 1px solid var(--r-border); border-radius: 12px; }
+.mwi-r-solo-label ~ .mwi-r-solo { font-weight: 400; color: var(--r-muted); border-style: dashed; }
 /* Cases du profil : icône au centre, textes et badges dans les coins */
 .mwi-r-tiles {
     --tile: 58px;
@@ -225,6 +232,7 @@
     gap: 6px; margin-top: 10px; justify-content: start; overflow-x: auto; padding-bottom: 2px;
 }
 .mwi-r-tiles:first-child { margin-top: 0; }
+.mwi-r-tiles.placed { grid-template-columns: repeat(var(--cols), var(--tile)); }
 .mwi-r-tile {
     position: relative; width: var(--tile); height: var(--tile);
     display: flex; align-items: center; justify-content: center;
@@ -254,9 +262,56 @@
 .mwi-r-tb.tr { top: 2px; right: 2px; }
 .mwi-r-tb.bl { bottom: 2px; left: 2px; }
 .mwi-r-tb.br { bottom: 2px; right: 2px; }
-.mwi-r-tb.tc { top: 2px; left: 21px; }
-.mwi-r-tb.bc { bottom: 2px; left: 21px; }
+.mwi-r-tb.tc { top: 2px; left: calc(50% - 8px); }
+.mwi-r-tb.bc { bottom: 2px; left: calc(50% - 8px); }
+.mwi-r-tile.vide { background: none; border-style: dashed; opacity: .75; }
+.mwi-r-tname { padding: 2px; font-size: 9px; line-height: 1.15; text-align: center; color: var(--r-muted); overflow: hidden; }
+.mwi-r-sub { margin: 14px 0 6px; font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--r-muted); }
+.mwi-r-sub:first-child { margin-top: 0; }
+.mwi-r-psec .mwi-r-sub + .mwi-r-tiles, .mwi-r-sub + .mwi-r-tiles { margin-top: 0; }
 .mwi-r-pempty { margin: 10px 0 0; font-style: italic; color: var(--r-muted); font-size: 12px; }
+
+/* Petite fenêtre : un onglet à la fois. Modale large : toutes les sections répertoriées en colonnes, sans onglets */
+.mwi-r-pview { container-type: inline-size; container-name: mwi-pview; }
+.mwi-r-psec:not(.active) { display: none; }
+.mwi-r-psec-title { display: none; }
+@container mwi-pview (min-width: 880px) {
+    .mwi-r-ptabs { display: none; }
+    .mwi-r-pbody { padding: 0 4px 0 0; background: none; border: 0; border-radius: 0; }
+    .mwi-r-psecs { columns: 420px; column-gap: 12px; }
+    .mwi-r-psec, .mwi-r-psec:not(.active) {
+        display: block; break-inside: avoid; margin: 0 0 12px; padding: 12px 14px 14px;
+        background: linear-gradient(180deg, var(--r-panel-2), var(--r-panel) 46px);
+        border: 1px solid var(--r-border); border-top: 2px solid var(--r-accent); border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0,0,0,.35);
+    }
+    .mwi-r-psec-title {
+        display: flex; align-items: center; gap: 8px; margin: 0 0 12px;
+        font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--r-gold);
+    }
+    .mwi-r-psec-title::after { content: ''; flex: 1; height: 1px; background: var(--r-border); }
+    .mwi-r-psec .mwi-r-rows { grid-template-columns: 1fr; }
+    .mwi-r-psec .mwi-r-tiles { justify-content: center; }
+}
+/* Très grande modale : trois colonnes indépendantes (Skills | Résumé, Overview | Equipment), le reste réparti en dessous */
+.mwi-r-pcol { display: contents; }
+@container mwi-pview (min-width: 1200px) {
+    .mwi-r-psecs {
+        columns: auto; display: grid; gap: 12px; align-items: start;
+        grid-template-columns: minmax(0, .8fr) minmax(0, 1fr) minmax(400px, 1.1fr);
+    }
+    .mwi-r-pcol { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+    .mwi-r-psec, .mwi-r-psec:not(.active) { margin: 0; min-width: 0; }
+    /* Cases plus grandes, réparties sur toute la largeur de la section */
+    .mwi-r-psec .mwi-r-tiles {
+        --tile: clamp(58px, 4cqw, 72px); gap: 12px 8px; margin-top: 12px;
+        grid-template-columns: repeat(auto-fill, minmax(calc(var(--tile) + 14px), 1fr));
+        justify-content: stretch; justify-items: center;
+    }
+    .mwi-r-psec .mwi-r-tiles.placed { grid-template-columns: repeat(var(--cols), minmax(var(--tile), 1fr)); }
+    .mwi-r-psec .mwi-r-tico, .mwi-r-psec .mwi-r-tico svg, .mwi-r-psec .mwi-r-tico img { width: calc(var(--tile) - 18px); height: calc(var(--tile) - 18px); }
+    .mwi-r-psec .mwi-r-tt { font-size: 12px; }
+}
 
 .mwi-r-empty { padding: 18px 8px; text-align: center; font-style: italic; color: var(--r-muted); background: var(--r-panel); border: 1px dashed var(--r-border); border-radius: 6px; }
 
