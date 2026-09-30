@@ -664,7 +664,7 @@
                 return {
                     titre: s.titre,
                     html: tuiles.length || s.lignes.length
-                        ? (s.lignes.length ? linesToHtml(s.lignes, soloLabel, shrine ? /^shrine/i : null) : '') + tilesToHtml(tuiles)
+                        ? (s.lignes.length ? linesToHtml(s.lignes, soloLabel, shrine ? /^shrine/i : null) : '') + tilesToHtml(tuiles, /skill/i.test(s.titre))
                         : '<p class="mwi-r-pempty">Rien dans cet onglet.</p>'
                 };
             }));
@@ -713,11 +713,14 @@
         view.querySelector('.mwi-r-pbody').scrollTop = scroll;
     }
 
-    function tilesToHtml(tuiles) {
+    // flow : cases à la suite dans l'ordre du jeu, sans reprendre sa grille (autant par ligne que la largeur le permet)
+    function tilesToHtml(tuiles, flow) {
         if (!tuiles.length) return '';
-        const placed = tuiles.every(t => t.col !== undefined);
+        const located = tuiles.every(t => t.col !== undefined);
+        if (flow && located) tuiles = [...tuiles].sort((a, b) => a.row - b.row || a.col - b.col);
+        const placed = located && !flow;
         const cols = placed ? Math.max(...tuiles.map(t => t.col)) + 1 : 0;
-        const style = placed ? ` style="grid-template-columns: repeat(${cols}, var(--tile))"` : '';
+        const style = placed ? ` style="--cols: ${cols}"` : '';
         const valueClass = (t) => /^\+\d/.test(t) ? ' plus' : /^[\d\s., ]+[kKmM]?$/.test(t) ? ' num' : '';
         return `<div class="mwi-r-tiles${placed ? ' placed' : ''}"${style}>${tuiles.map(t => {
             const textes = t.textes || (t.texte ? [{ t: t.texte, coin: 'tl' }] : []);

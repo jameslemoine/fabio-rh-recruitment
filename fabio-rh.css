@@ -232,6 +232,7 @@
     gap: 6px; margin-top: 10px; justify-content: start; overflow-x: auto; padding-bottom: 2px;
 }
 .mwi-r-tiles:first-child { margin-top: 0; }
+.mwi-r-tiles.placed { grid-template-columns: repeat(var(--cols), var(--tile)); }
 .mwi-r-tile {
     position: relative; width: var(--tile); height: var(--tile);
     display: flex; align-items: center; justify-content: center;
@@ -261,8 +262,8 @@
 .mwi-r-tb.tr { top: 2px; right: 2px; }
 .mwi-r-tb.bl { bottom: 2px; left: 2px; }
 .mwi-r-tb.br { bottom: 2px; right: 2px; }
-.mwi-r-tb.tc { top: 2px; left: 21px; }
-.mwi-r-tb.bc { bottom: 2px; left: 21px; }
+.mwi-r-tb.tc { top: 2px; left: calc(50% - 8px); }
+.mwi-r-tb.bc { bottom: 2px; left: calc(50% - 8px); }
 .mwi-r-pempty { margin: 10px 0 0; font-style: italic; color: var(--r-muted); font-size: 12px; }
 
 /* Petite fenêtre : un onglet à la fois. Modale large : toutes les sections répertoriées en colonnes, sans onglets */
@@ -296,6 +297,15 @@
     }
     .mwi-r-pcol { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
     .mwi-r-psec, .mwi-r-psec:not(.active) { margin: 0; min-width: 0; }
+    /* Cases plus grandes, réparties sur toute la largeur de la section */
+    .mwi-r-psec .mwi-r-tiles {
+        --tile: clamp(58px, 4cqw, 72px); gap: 12px 8px; margin-top: 12px;
+        grid-template-columns: repeat(auto-fill, minmax(calc(var(--tile) + 14px), 1fr));
+        justify-content: stretch; justify-items: center;
+    }
+    .mwi-r-psec .mwi-r-tiles.placed { grid-template-columns: repeat(var(--cols), minmax(var(--tile), 1fr)); }
+    .mwi-r-psec .mwi-r-tico, .mwi-r-psec .mwi-r-tico svg, .mwi-r-psec .mwi-r-tico img { width: calc(var(--tile) - 18px); height: calc(var(--tile) - 18px); }
+    .mwi-r-psec .mwi-r-tt { font-size: 12px; }
 }
 
 .mwi-r-empty { padding: 18px 8px; text-align: center; font-style: italic; color: var(--r-muted); background: var(--r-panel); border: 1px dashed var(--r-border); border-radius: 6px; }
