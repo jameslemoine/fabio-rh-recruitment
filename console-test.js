@@ -618,12 +618,16 @@
                 <dt>⏳ Age</dt><dd>${esc(p.stats.age)}</dd>
             </dl>`;
         const sections = [{ titre: 'Résumé', html: resume }].concat(
-            ((p.profil && p.profil.sections) || []).map(s => ({
-                titre: s.titre,
-                html: (s.tuiles && s.tuiles.length) || s.lignes.length
-                    ? (s.lignes.length ? linesToHtml(s.lignes) : '') + tilesToHtml(s.tuiles || [])
-                    : '<p class="mwi-r-pempty">Rien dans cet onglet.</p>'
-            })));
+            ((p.profil && p.profil.sections) || []).map(s => {
+                // Achievements : pas d'icônes, seulement le nom de chaque groupe et le nombre réalisé
+                const tuiles = /achievement|succ[èe]s/i.test(s.titre) ? [] : (s.tuiles || []);
+                return {
+                    titre: s.titre,
+                    html: tuiles.length || s.lignes.length
+                        ? (s.lignes.length ? linesToHtml(s.lignes) : '') + tilesToHtml(tuiles)
+                        : '<p class="mwi-r-pempty">Rien dans cet onglet.</p>'
+                };
+            }));
         if (currentSection >= sections.length) currentSection = 0;
         const hint = p.profil ? '' : `<p class="mwi-r-pempty">${p.verifie
             ? 'Détails non récupérés pour ce joueur : relance la vérification.'
