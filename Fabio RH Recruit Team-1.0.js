@@ -644,6 +644,9 @@
             ? 'Détails non récupérés pour ce joueur : relance la vérification.'
             : 'Profil pas encore vérifié : clique sur « 2. Vérifier Profils » pour récupérer toutes les infos.'}</p>`;
 
+        // Toutes les sections sont dans la page : le CSS n'affiche que l'onglet actif en petite fenêtre,
+        // et les répertorie toutes côte à côte (sans onglets) quand la modale est large
+        const scroll = view.querySelector('.mwi-r-pbody')?.scrollTop || 0;
         view.innerHTML = `
             <div class="mwi-r-phead">
                 <button class="mwi-r-btn" data-action="back" title="Retour à la liste">← Retour</button>
@@ -653,7 +656,13 @@
             <div class="mwi-r-ptabs">${sections.map((s, i) =>
                 `<button class="mwi-r-ptab${i === currentSection ? ' active' : ''}" data-action="section" data-index="${i}">${esc(s.titre)}</button>`).join('')}
             </div>
-            <div class="mwi-r-pbody">${sections[currentSection].html}${currentSection === 0 ? hint : ''}</div>`;
+            <div class="mwi-r-pbody"><div class="mwi-r-psecs">${sections.map((s, i) =>
+                `<section class="mwi-r-psec${i === currentSection ? ' active' : ''}">
+                    <h3 class="mwi-r-psec-title">${esc(s.titre)}</h3>
+                    ${s.html}${i === 0 ? hint : ''}
+                </section>`).join('')}
+            </div></div>`;
+        view.querySelector('.mwi-r-pbody').scrollTop = scroll;
     }
 
     function tilesToHtml(tuiles) {
