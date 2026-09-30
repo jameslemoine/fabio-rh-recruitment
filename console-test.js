@@ -588,17 +588,30 @@
 
     // Texte brut d'un onglet : regroupe chaque libellé avec la valeur qui le suit
     const isValue = (l) => /^[\d\s.,  /()%+-]+$|^\d|^(?:\d+y\s*)?\d+d$|^Floor/i.test(l);
-    function linesToHtml(lignes) {
-        const items = [];
+    const isLabel = (l) => /(?:Level|Points|Floor|Age|Achievements)$/i.test(l);
+    const cleanLine = (l) => String(l).replace(/[​-‏⁠﻿]/g, '').trim();
+    // Lignes "libellé ........ valeur" comme dans le jeu (avec une jauge pour les "x / y"),
+    // précédées des textes isolés sous forme d'étiquettes (soloLabel : ce qu'ils représentent)
+    function linesToHtml(lignes, soloLabel) {
+        const rows = [], solos = [];
+        lignes = lignes.map(cleanLine).filter(Boolean);
         for (let i = 0; i < lignes.length; i++) {
             const l = lignes[i], next = lignes[i + 1];
-            if (/of$/i.test(l) && next) { items.push([l.replace(/\s*of$/i, ''), next]); i++; }  // "Officer of" + guilde
-            else if (!isValue(l) && next !== undefined && isValue(next)) { items.push([l, next]); i++; }
-            else items.push([null, l]);
+            if (/\bof$/i.test(l) && next) { rows.push([l, next]); i++; }  // "Officer of" + guilde
+            else if (!isValue(l) && next !== undefined && (isValue(next) || isLabel(l))) { rows.push([l, next]); i++; }
+            else if (/^\(?\d+\s*\/\s*\d+\)?$/.test(l)) rows.push(['Achievements', l]); // libellé homonyme d'un onglet, retiré à la lecture
+            else solos.push(l);
         }
-        return `<div class="mwi-r-pairs">${items.map(([k, v]) => k
-            ? `<div class="mwi-r-pair"><span>${esc(k)}</span><b>${esc(v)}</b></div>`
-            : `<div class="mwi-r-pair solo"><b>${esc(v)}</b></div>`).join('')}</div>`;
+        const rowHtml = ([k, v]) => {
+            const m = v.match(/^\(?(\d+)\s*\/\s*(\d+)\)?$/);
+            if (!m) return `<div class="mwi-r-row"><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`;
+            const pct = +m[2] ? Math.min(100, Math.round(m[1] / m[2] * 100)) : 0;
+            return `<div class="mwi-r-row${pct === 100 ? ' done' : ''}"><dt>${esc(k)}</dt><dd>${m[1]} / ${m[2]}</dd>
+                <div class="mwi-r-bar"><div style="width: ${pct}%"></div></div></div>`;
+        };
+        return (solos.length ? `<div class="mwi-r-solos">${soloLabel ? `<span class="mwi-r-solo-label">${esc(soloLabel)}</span>` : ''}${
+            solos.map(s => `<span class="mwi-r-solo">${esc(s)}</span>`).join('')}</div>` : '')
+            + (rows.length ? `<dl class="mwi-r-rows">${rows.map(rowHtml).join('')}</dl>` : '');
     }
 
     function renderProfileView() {
