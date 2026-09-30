@@ -1,7 +1,7 @@
 // Fichier généré par tools/build-console.js - ne pas modifier à la main.
 // Coller tout le contenu dans la console du jeu (F12) pour tester sans Tampermonkey.
-// Version : 0b69232 - Audit : limiteur anti-spam commun, helpers partagés, code mort retiré, tests Node
-console.log('[Fabio RH] console-test :', "0b69232 - Audit : limiteur anti-spam commun, helpers partagés, code mort retiré, tests Node");
+// Version : 14e5579 - Leaderboard : lecture du panneau de classement affiché, pas du premier trouvé
+console.log('[Fabio RH] console-test :', "14e5579 - Leaderboard : lecture du panneau de classement affiché, pas du premier trouvé");
 (function() {
     'use strict';
 
@@ -320,19 +320,20 @@ console.log('[Fabio RH] console-test :', "0b69232 - Audit : limiteur anti-spam c
 
     // Page Leaderboard du jeu (les pages non affichées restent dans le document, masquées) :
     // le panneau nommé par le jeu, sinon le bloc autour de l'onglet "Guilds" qui contient aussi le tableau
+    // Chaque classement a son propre TabPanel (les autres restent dans le document en "TabPanel_hidden") :
+    // on renvoie le bloc qui contient à la fois les onglets et tous les panneaux, pas le panneau affiché
     function findLeaderboard() {
         const panel = Array.from(document.querySelectorAll('[class*="LeaderboardPanel"]')).find(visible);
-        if (panel) return panel;
-        let el = tabEl(document.body, 'Guilds');
-        while (el && el !== document.body && !/Rank[\s\S]*Name/.test(el.textContent)) el = el.parentElement;
+        let el = panel || tabEl(document.body, 'Guilds');
+        while (el && el !== document.body && !(tabEl(el, 'Guilds') && /Rank[\s\S]*Name/.test(el.textContent))) el = el.parentElement;
         return el && el !== document.body ? el : null;
     }
 
-    // Joueurs du classement affiché : composant CharacterName du jeu, sinon 2e colonne du tableau
+    // Joueurs du classement affiché (panneaux masqués ignorés) : composant CharacterName du jeu, sinon 2e colonne du tableau
     function leaderboardPlayers(root) {
-        const els = Array.from(root.querySelectorAll('[class*="CharacterName_name"][data-name]'));
+        const els = Array.from(root.querySelectorAll('[class*="CharacterName_name"][data-name]')).filter(e => e.offsetParent !== null);
         if (els.length) return els.map(readCharacterName);
-        return Array.from(root.querySelectorAll('tr'), tr => tr.children[1] ? txt(tr.children[1]) : '')
+        return Array.from(root.querySelectorAll('tr'), tr => tr.children[1] && tr.offsetParent !== null ? txt(tr.children[1]) : '')
             .filter(n => n && n !== 'Name').map(username => ({ username, ironcow: false, color: '' }));
     }
 
