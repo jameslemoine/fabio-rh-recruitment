@@ -628,9 +628,9 @@
                 <dt>Statut</dt><dd class="mwi-r-pstat ${cat}">${statut}</dd>
                 <dt>Mode</dt><dd>${p.ironcow ? '🐄 Ironcow' : 'Standard'}</dd>
                 ${cat === 'guild' ? `<dt>Guilde</dt><dd>${esc(p.guilde)}</dd><dt>Rang</dt><dd>${esc(p.rang)}</dd>` : ''}
-                <dt>🛡️ Total</dt><dd>${esc(p.stats.total)}</dd>
+                ${p.profil ? '' : `<dt>🛡️ Total</dt><dd>${esc(p.stats.total)}</dd>
                 <dt>⚔️ Combat</dt><dd>${esc(p.stats.combat)}</dd>
-                <dt>⏳ Age</dt><dd>${esc(p.stats.age)}</dd>
+                <dt>⏳ Age</dt><dd>${esc(p.stats.age)}</dd>`}
             </dl>`;
         const sections = [{ titre: 'Résumé', html: resume }].concat(
             ((p.profil && p.profil.sections) || []).map(s => {
@@ -639,7 +639,7 @@
                 return {
                     titre: s.titre,
                     html: tuiles.length || s.lignes.length
-                        ? (s.lignes.length ? linesToHtml(s.lignes) : '') + tilesToHtml(tuiles)
+                        ? (s.lignes.length ? linesToHtml(s.lignes, tuiles.length ? 'Vide :' : '') : '') + tilesToHtml(tuiles)
                         : '<p class="mwi-r-pempty">Rien dans cet onglet.</p>'
                 };
             }));
