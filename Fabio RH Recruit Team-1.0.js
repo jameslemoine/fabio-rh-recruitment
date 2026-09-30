@@ -275,7 +275,6 @@
         const activeTab = allTabs.find(t => t.getAttribute('aria-selected') === 'true') || tabs[0];
         let countNew = 0;
         let totalMessages = 0;
-        let leaderboard = 0, guildCats = 0;
         const scanLog = [];
 
         try {
@@ -295,16 +294,6 @@
             }
             if (activeTab) activeTab.click();
             await sleep(50);
-
-            // Puis le leaderboard : tous les joueurs classés dans chaque métier et skill de combat
-            try {
-                const lb = await scanLeaderboard();
-                countNew += lb.countNew;
-                leaderboard = lb.classements;
-                guildCats = lb.guildCats || 0;
-            } catch (e) {
-                log('Erreur pendant le scan du leaderboard :', e);
-            }
         } finally {
             isScanning = false;
             if (scanBtn) { scanBtn.disabled = false; scanBtn.textContent = '1. Scanner'; }
@@ -313,41 +302,21 @@
 
         log(`${countNew} nouveaux joueurs mis en file d'attente (${recrues.size} au total).`);
         console.table(scanLog.filter(e => e.resultat.startsWith('ignoré')));
-        setStatus(`Scan terminé (${tabs.length} onglets de chat, ${leaderboard} classements, ${guildes.size} guildes) : ${countNew} nouveau(x) joueur(s).`,
-            leaderboard && guildCats ? 'ok' : 'warn');
+        setStatus(`Scan terminé (${tabs.length} onglets de chat) : ${countNew} nouveau(x) joueur(s).`, 'ok');
         updateModalUI();
-        if (document.getElementById('mwi-tracker-modal').dataset.view === 'guilds') renderGuildView();
     };
 
     // ---------------------------------------------------------------
-    // 1b. Scanner le leaderboard : les joueurs classés de chaque métier et skill de combat
+    // 1b. Leaderboard : lecture passive des classements que le joueur ouvre lui-même dans le jeu
     // ---------------------------------------------------------------
-    const horsJeu = (e) => e.closest('#mwi-tracker-modal') || e.closest('[class*="NavigationBar_"]') || e.closest('[class*="Chat_"]');
-    const txt = (e) => (e.textContent || '').trim();
-    // Éléments visibles dont le texte est exactement celui demandé : le plus profond de chaque branche
-    // (un bouton du jeu contient souvent son texte + un élément vide pour l'effet de clic)
-    const exactEls = (root, text) => Array.from(root.querySelectorAll('*')).filter(e =>
-        txt(e) === text && !Array.from(e.children).some(c => txt(c) === text) && e.offsetParent !== null && !horsJeu(e));
-    const commonAncestor = (a, b) => { let el = a; while (el && !el.contains(b)) el = el.parentElement; return el; };
-
-    const visible = (e) => e.offsetParent !== null && !horsJeu(e);
-    // Onglet ou bouton du jeu portant exactement ce texte
-    const tabEl = (root, text) => Array.from(root.querySelectorAll('[role="tab"], button')).find(e => txt(e) === text && visible(e))
-        || exactEls(root, text)[0];
-
-    // Page Leaderboard du jeu (les pages non affichées restent dans le document, masquées) :
-    // le panneau nommé par le jeu, sinon le bloc autour de l'onglet "Guilds" qui contient aussi le tableau
-    function findLeaderboard() {
-        const panel = Array.from(document.querySelectorAll('[class*="LeaderboardPanel"]')).find(visible);
-        if (panel) return panel;
-        let el = tabEl(document.body, 'Guilds');
-        while (el && el !== document.body && !/Rank[\s\S]*Name/.test(el.textContent)) el = el.parentElement;
-        return el && el !== document.body ? el : null;
-    }
-
-    // Classements reçus du serveur : à chaque clic sur un classement, le jeu reçoit un message "leaderboard_updated"
-    // avec toutes les lignes (nom, rang, valeurs). On les lit là plutôt qu'à l'écran.
-    const lbRecus = { joueurs: new Set(), guildes: new Set(), nouveaux: 0, seq: 0 };
+    // À chaque classement ouvert, le jeu reçoit un message "leaderboard_updated" avec toutes les lignes
+    // (nom, rang, valeurs). On les lit au passage : le script ne clique rien et n'envoie aucune demande.
+    const LB_JOUEURS = ['total_level', 'milking', 'foraging', 'woodcutting', 'cheesesmithing', 'crafting', 'tailoring', 'cooking',
+        'brewing', 'alchemy', 'enhancing', 'stamina', 'intelligence', 'attack', 'defense', 'melee', 'ranged', 'magic',
+        'task_points', 'labyrinth_points', 'labyrinth_depth', 'collection_points', 'bestiary_points', 'fame_points'];
+    const LB_GUILDES = { guild: 'Level', guild_buildings: 'Buildings', guild_shrines: 'Shrines', guild_points: 'Guild Points',
+        guild_weekly_points: 'Weekly Points', guild_weekly_trial: 'Weekly Trials' };
+    const lbRecus = { joueurs: new Set(), guildes: new Set() }; // classements déjà lus : "type|catégorie" et catégorie de guilde
     let lbDernier = ''; // dernier message reçu, pour ne pas le traiter deux fois
     function onLeaderboard(msg) {
         const lb = msg.leaderboard || {};
@@ -358,10 +327,12 @@
         // Lignes du classement, plus toute ligne isolée (notre propre rang quand il est hors du haut du classement)
         const rows = (Array.isArray(lb.rows) ? lb.rows : []).concat(
             Object.values(lb).filter(v => v && typeof v === 'object' && !Array.isArray(v) && v.name && 'rank' in v));
-        lbRecus.seq++;
         if (type === 'guild') {
             // Seul le classement sans filtre donne le vrai rang de chaque guilde
-            if ((msg.guildTypeFilter || 'all') !== 'all' || (msg.gameModeFilter || 'all') !== 'all') return;
+            if ((msg.guildTypeFilter || 'all') !== 'all' || (msg.gameModeFilter || 'all') !== 'all') {
+                setStatus('Classement de guildes filtré : remets les filtres du jeu sur « All » pour qu\'il soit lu.', 'warn');
+                return;
+            }
             const label = pretty(cat.replace(/^guild_/, ''));
             const cols = (lb.columnNames || []).map(c => pretty(String(c).split('.').pop().replace(/([a-z])([A-Z])/g, '$1 $2')));
             rows.forEach(r => {
@@ -373,129 +344,38 @@
                 guildes.set(r.name, g);
             });
             lbRecus.guildes.add(cat);
+            setStatus(`Classement de guildes « ${LB_GUILDES[cat] || label} » lu : ${rows.length} guildes.`, 'ok');
             if (document.getElementById('mwi-tracker-modal')?.dataset.view === 'guilds') renderGuildView();
         } else {
             const iron = /iron/i.test(`${type} ${msg.gameModeFilter || ''}`);
+            let nouveaux = 0;
             rows.forEach(r => {
                 const nom = r.name || r.characterName;
                 if (!/^[a-zA-Z0-9_-]{2,30}$/.test(nom || '')) return;
-                if (upsertRecruit(nom, '', iron || /iron/i.test(r.gameMode || ''), [], `leaderboard ${cat}`, '')) lbRecus.nouveaux++;
+                if (upsertRecruit(nom, '', iron || /iron/i.test(r.gameMode || ''), [], `leaderboard ${cat}`, '')) nouveaux++;
             });
             lbRecus.joueurs.add(`${type}|${cat}`);
+            setStatus(`Classement ${pretty(type)} « ${pretty(cat)} » lu : ${nouveaux} nouveau(x) joueur(s).`, 'ok');
             updateModalUI();
         }
+        renderLeaderboard();
     }
 
-    // Rythme des demandes de classement : le serveur ignore celles qui arrivent trop vite.
-    // L'intervalle s'allonge dès qu'une demande reste sans réponse.
-    const LB_INTERVALLE_MIN_MS = 1200, LB_INTERVALLE_MAX_MS = 4000, LB_ATTENTE_MS = 8000;
-    let lbIntervalleMs = LB_INTERVALLE_MIN_MS;
-    // Pauses (en secondes) après 1, 2, 3... demandes sans réponse à la suite ; au-delà, le scan de la liste s'arrête
-    const LB_PAUSES_S = [20, 40, 60, 60];
-
-    // Attend la réponse du serveur à une demande faite à l'instant t0, puis la fin de l'intervalle minimum
-    async function waitLb(seq, t0) {
-        while (lbRecus.seq === seq && Date.now() - t0 < LB_ATTENTE_MS) await sleep(POLL_MS);
-        const ok = lbRecus.seq !== seq;
-        if (!ok) lbIntervalleMs = Math.min(lbIntervalleMs * 2, LB_INTERVALLE_MAX_MS);
-        const reste = t0 + lbIntervalleMs - Date.now();
-        if (reste > 0) await sleep(reste);
-        return ok;
-    }
-
-    // Clique chaque classement de la liste verticale qui contient les onglets a et b ; renvoie le nombre de réponses
-    async function clickCategories(root, a, b, prefix) {
-        const x = tabEl(root, a), y = tabEl(root, b);
-        const box = x && y && commonAncestor(x, y);
-        if (!box) {
-            log(`${prefix} : liste des classements introuvable. Onglets vus :`, Array.from(root.querySelectorAll('[role="tab"], button'), txt));
-            return 0;
-        }
-        const tabs = Array.from(box.children).filter(e => txt(e));
-        // Le classement déjà affiché passe en dernier : le recliquer ne redemande rien tant qu'un autre n'a pas été ouvert
-        const selected = (t) => t.getAttribute('aria-selected') === 'true';
-        const ouvrir = async (el, n, total, essai) => {
-            setStatus(`${prefix} : ${txt(el)} (${n}/${total}${essai ? ', nouvel essai' : ''})...`, '');
-            const seq = lbRecus.seq, t0 = Date.now();
-            el.click();
-            return waitLb(seq, t0);
-        };
-        const file = tabs.filter(t => !selected(t)).concat(tabs.filter(selected));
-        const total = file.length, essais = new Map();
-        let recus = 0, echecs = 0; // echecs : demandes sans réponse à la suite
-        while (file.length) {
-            // Le serveur n'accorde qu'un petit nombre de demandes à la suite : après un silence, on le laisse souffler
-            if (echecs) {
-                if (echecs > LB_PAUSES_S.length) break;
-                const pause = LB_PAUSES_S[echecs - 1];
-                for (let s = pause; s > 0; s--) {
-                    setStatus(`${prefix} : limite du serveur atteinte, reprise dans ${s} s (${recus}/${total} lus)...`, 'warn');
-                    await sleep(1000);
-                }
-            }
-            let el = file.shift();
-            if (selected(el)) { // déjà affiché : on passe par un autre classement pour relancer la demande
-                const autre = file.find(t => !selected(t)) || tabs.find(t => t !== el);
-                if (autre && file.includes(autre)) { file.unshift(el); file.splice(file.indexOf(autre), 1); el = autre; }
-                else if (autre) await ouvrir(autre, recus + 1, total, true);
-            }
-            const n = essais.get(el) || 0;
-            if (await ouvrir(el, recus + 1, total, n > 0)) { recus++; echecs = 0; }
-            else {
-                echecs++;
-                essais.set(el, n + 1);
-                file.push(el); // il repassera en fin de file, après la pause
-            }
-        }
-        file.forEach(t => log(`${prefix} : pas de réponse du serveur pour "${txt(t)}".`));
-        return recus;
-    }
-
-    // Se rend sur la page Leaderboard et ouvre chaque classement de joueurs puis de guildes ;
-    // les données elles-mêmes arrivent par onLeaderboard
-    async function scanLeaderboard() {
-        lbRecus.joueurs.clear(); lbRecus.guildes.clear(); lbRecus.nouveaux = 0;
-        lbIntervalleMs = LB_INTERVALLE_MIN_MS;
-        // Changer d'onglet fait demander au jeu le classement affiché par défaut : on laisse cette demande aboutir
-        const ouvrirOnglet = async (el) => {
-            const seq = lbRecus.seq, t0 = Date.now();
-            el.click();
-            while (lbRecus.seq === seq && Date.now() - t0 < 2500) await sleep(POLL_MS);
-            await sleep(lbIntervalleMs);
-        };
-        const bilan = () => ({ countNew: lbRecus.nouveaux, classements: lbRecus.joueurs.size, guildCats: lbRecus.guildes.size });
-        const pageAvant = document.querySelector('[class*="NavigationBar_active"]');
-        let root = findLeaderboard();
-        if (!root) {
-            const nav = document.querySelector('svg[aria-label="navigationBar.leaderboard"]');
-            if (!nav) { log('Leaderboard : lien introuvable dans le menu du jeu.'); return bilan(); }
-            (nav.closest('[class*="NavigationBar_navigationLink"]') || nav.parentElement).click();
-            for (let k = 0; k < 75 && !root; k++) { await sleep(POLL_MS); root = findLeaderboard(); }
-        }
-        if (!root) { log('Leaderboard : page introuvable après ouverture.'); return bilan(); }
-
-        // Onglets du jeu selon le filtre de mode
-        const modes = currentMode === 'standard' ? ['Standard'] : currentMode === 'ironcow' ? ['Ironcow'] : ['Standard', 'Ironcow'];
-        for (const mode of modes) {
-            const tab = tabEl(root, mode);
-            if (!tab) { log(`Leaderboard : onglet "${mode}" introuvable.`); continue; }
-            await ouvrirOnglet(tab);
-            await clickCategories(root, 'Milking', 'Foraging', `Leaderboard ${mode}`);
-        }
-
-        // Onglet des guildes, sans filtre, pour la comparaison
-        const guilds = tabEl(root, 'Guilds');
-        if (guilds) {
-            await ouvrirOnglet(guilds);
-            const all = Array.from(root.querySelectorAll('[class*="guildFilterButton"]')).find(e => txt(e) === 'All');
-            if (all && !/Active/.test(all.className)) await ouvrirOnglet(all);
-            await clickCategories(root, 'Buildings', 'Shrines', 'Leaderboard guildes');
-        } else log('Leaderboard : onglet "Guilds" introuvable.');
-        log(`Leaderboard : ${lbRecus.joueurs.size} classements de joueurs, ${lbRecus.guildes.size} de guildes, ${guildes.size} guildes connues.`);
-
-        // Retour à la page du jeu affichée avant le scan
-        if (pageAvant && pageAvant.isConnected && !pageAvant.querySelector('svg[aria-label="navigationBar.leaderboard"]')) pageAvant.click();
-        return bilan();
+    // Suivi dans la modale : les classements déjà lus sont cochés, les autres restent à ouvrir dans le jeu
+    function renderLeaderboard() {
+        const box = document.getElementById('mwi-lb');
+        if (!box) return;
+        const puce = (p) => `<span class="mwi-r-lbc${p[0] ? ' lu' : ''}">${p[0] ? '✓ ' : ''}${esc(p[1])}</span>`;
+        const modes = currentMode === 'standard' ? ['standard'] : currentMode === 'ironcow' ? ['ironcow'] : ['standard', 'ironcow'];
+        const groupes = modes.map(m => ({ nom: pretty(m), puces: LB_JOUEURS.map(c => [lbRecus.joueurs.has(`${m}|${c}`), pretty(c)]) }));
+        groupes.push({ nom: 'Guilds', puces: Object.keys(LB_GUILDES).map(c => [lbRecus.guildes.has(c), LB_GUILDES[c]]) });
+        const lus = groupes.reduce((n, g) => n + g.puces.filter(p => p[0]).length, 0);
+        const total = groupes.reduce((n, g) => n + g.puces.length, 0);
+        const details = box.querySelector('details');
+        box.innerHTML = `<details${!details || details.open ? ' open' : ''}>
+            <summary>Leaderboard : ${lus} / ${total} classements lus — ouvre-les dans le jeu, ils sont lus au passage</summary>
+            ${groupes.map(g => `<div class="mwi-r-lbg"><b>${esc(g.nom)}</b>${g.puces.map(puce).join('')}</div>`).join('')}
+        </details>`;
     }
 
     // Nombre lu dans une valeur affichée : "10 054 281", "1,2M", "513"
@@ -718,7 +598,7 @@
                         <button class="mwi-r-icon" data-size="medium" title="Cases moyennes"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><rect x="1" y="1" width="14" height="4" rx="1"/><rect x="1" y="6" width="14" height="4" rx="1"/><rect x="1" y="11" width="14" height="4" rx="1"/></svg></button>
                         <button class="mwi-r-icon" data-size="small" title="Petites cases : profil au survol"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><rect x="1" y="1" width="14" height="2" rx="1"/><rect x="1" y="4" width="14" height="2" rx="1"/><rect x="1" y="7" width="14" height="2" rx="1"/><rect x="1" y="10" width="14" height="2" rx="1"/><rect x="1" y="13" width="14" height="2" rx="1"/></svg></button>
                     </div>
-                    <button class="mwi-r-btn" id="mwi-btn-guilds" title="Comparer notre guilde aux autres (données lues par le scan)">Guildes</button>
+                    <button class="mwi-r-btn" id="mwi-btn-guilds" title="Comparer notre guilde aux autres (classements de guildes ouverts dans le jeu)">Guildes</button>
                     <button class="mwi-r-btn" id="mwi-btn-copy" title="Copier les pseudos affichés">Copier</button>
                     <button class="mwi-r-btn" id="mwi-btn-clear" title="Vider la liste">Vider</button>
                 </div>
@@ -727,12 +607,13 @@
                     <button class="mwi-r-icon" id="mwi-btn-chans" title="Rafraîchir la liste des canaux">↻</button>
                 </div>
                 <div class="mwi-r-chans" id="mwi-channels"></div>
+                <div class="mwi-r-lb" id="mwi-lb"></div>
                 <ul class="mwi-r-list" id="mwi-tracker-list"></ul>
                 <div class="mwi-r-pview" id="mwi-profile-view"></div>
                 <div class="mwi-r-gview" id="mwi-guild-view"></div>
                 <div class="mwi-r-progress" id="mwi-progress"><div id="mwi-progress-bar"></div></div>
                 <div class="mwi-r-actions">
-                    <button class="mwi-r-btn" id="mwi-btn-scan" title="Scanne le chat puis le leaderboard du jeu">1. Scanner</button>
+                    <button class="mwi-r-btn" id="mwi-btn-scan" title="Scanne les canaux de chat cochés">1. Scanner</button>
                     <button class="mwi-r-btn primary" id="mwi-btn-process">2. Vérifier Profils</button>
                 </div>
                 <div class="mwi-r-foot">
@@ -803,10 +684,12 @@
         const modeSelect = document.getElementById('mwi-mode-filter');
         currentMode = ['standard', 'ironcow'].includes(saved.modeFilter) ? saved.modeFilter : 'all';
         modeSelect.value = currentMode;
+        renderLeaderboard();
         modeSelect.addEventListener('change', (e) => {
             currentMode = e.target.value;
             saveUI({ modeFilter: currentMode });
             updateModalUI();
+            renderLeaderboard();
         });
         const sizeBtns = document.querySelectorAll('#mwi-size button');
         const setSize = (size) => {
@@ -1108,7 +991,7 @@
         const cats = [];
         guildes.forEach(g => Object.keys(g.stats).forEach(c => { if (!cats.includes(c)) cats.push(c); }));
         if (!cats.length) {
-            view.innerHTML = head + '<p class="mwi-r-pempty">Aucune guilde lue pour le moment : clique sur « 1. Scanner », qui parcourt aussi l\'onglet Guilds du leaderboard.</p>';
+            view.innerHTML = head + '<p class="mwi-r-pempty">Aucune guilde lue pour le moment : ouvre les classements de l\'onglet Guilds du leaderboard du jeu, ils sont lus au passage.</p>';
             return;
         }
         if (!cats.includes(guildSort)) guildSort = cats[0];
@@ -1161,7 +1044,7 @@
     function guildCompareHtml(nomGuilde) {
         if (!nomGuilde || nomGuilde === MA_GUILDE) return '';
         const titre = `<h4 class="mwi-r-sub">${esc(nomGuilde)} face à ${esc(MA_GUILDE)}</h4>`;
-        if (!guildes.size) return titre + '<p class="mwi-r-pempty">Classements des guildes pas encore lus : clique sur « 1. Scanner ».</p>';
+        if (!guildes.size) return titre + '<p class="mwi-r-pempty">Classements des guildes pas encore lus : ouvre l\'onglet Guilds du leaderboard du jeu.</p>';
         const g = guildes.get(nomGuilde), moi = guildes.get(MA_GUILDE);
         if (!moi) return titre + `<p class="mwi-r-pempty">${esc(MA_GUILDE)} absente des classements lus : comparaison impossible.</p>`;
         const rang = (x, c) => x && x.stats[c] && isFinite(x.stats[c].rang) ? x.stats[c].rang : null;
