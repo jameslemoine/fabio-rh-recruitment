@@ -921,6 +921,33 @@
         currentSection = 0;
         document.getElementById('mwi-tracker-modal').dataset.view = 'profile';
         renderProfileView();
+        const p = recrues.get(username);
+        if (p && !p.verifie) verifierUn(p);
+    }
+
+    // Vérification d'un seul joueur à l'ouverture de sa fiche (sauf si un scan ou une vérification tourne déjà)
+    async function verifierUn(p) {
+        if (isProcessing || isScanning) return;
+        isProcessing = true;
+        const btn = document.getElementById('mwi-btn-process'), scanBtn = document.getElementById('mwi-btn-scan');
+        btn.disabled = scanBtn.disabled = true;
+        const spamWatch = startSpamWatch();
+        try {
+            const o = await limiteurProfils.executer(() => {
+                setStatus(`Vérification de ${p.nom}...`, '');
+                return window.mwiSendProfileCommand(p.nom);
+            }, () => analyzeProfile(p.nom), p.nom, ok => ok);
+            if (o.impossible) setStatus('Champ de chat introuvable.', 'err');
+            else if (!o.res) { p.verifie = true; p.echec = true; setStatus(`Profil de ${p.nom} illisible.`, 'warn'); }
+            else setStatus(`Profil de ${p.nom} vérifié.`, 'ok');
+        } catch (e) {
+            log('Erreur pendant la vérification :', e);
+        } finally {
+            spamWatch.disconnect();
+            isProcessing = false;
+            btn.disabled = scanBtn.disabled = false;
+            updateModalUI();
+        }
     }
     function closeProfileView() {
         currentProfile = null;
@@ -1126,6 +1153,7 @@
         if (currentSection >= sections.length) currentSection = 0;
         const hint = p.profil || brut ? '' : `<p class="mwi-r-pempty">${p.verifie
             ? 'Détails non récupérés pour ce joueur : relance la vérification.'
+            : isProcessing ? 'Vérification du profil en cours...'
             : 'Profil pas encore vérifié : clique sur « 2. Vérifier Profils » pour récupérer toutes les infos.'}</p>`;
 
         // Toutes les sections sont dans la page : le CSS n'affiche que l'onglet actif en petite fenêtre,
