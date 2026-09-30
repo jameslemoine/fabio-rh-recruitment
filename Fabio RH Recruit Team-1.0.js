@@ -261,10 +261,6 @@
             setStatus('Aucun onglet de chat trouvé.', 'warn');
             return;
         }
-        if (tabs.length === 0) {
-            setStatus('Aucun canal sélectionné.', 'warn');
-            return;
-        }
 
         isScanning = true;
         if (scanBtn) { scanBtn.disabled = true; scanBtn.textContent = 'Scan en cours...'; }
@@ -273,6 +269,7 @@
         const activeTab = allTabs.find(t => t.getAttribute('aria-selected') === 'true') || tabs[0];
         let countNew = 0;
         let totalMessages = 0;
+        let leaderboard = 0;
         const scanLog = [];
 
         try {
@@ -290,17 +287,27 @@
                 countNew += result.countNew;
                 totalMessages += result.total;
             }
-            activeTab.click();
+            if (activeTab) activeTab.click();
             await sleep(50);
+
+            // Puis le leaderboard : tous les joueurs classés dans chaque métier et skill de combat
+            try {
+                const lb = await scanLeaderboard(scanLog);
+                countNew += lb.countNew;
+                leaderboard = lb.classements;
+            } catch (e) {
+                log('Erreur pendant le scan du leaderboard :', e);
+            }
         } finally {
             isScanning = false;
-            if (scanBtn) { scanBtn.disabled = false; scanBtn.textContent = '1. Scanner Chat'; }
+            if (scanBtn) { scanBtn.disabled = false; scanBtn.textContent = '1. Scanner'; }
             if (processBtn) processBtn.disabled = false;
         }
 
         log(`${countNew} nouveaux joueurs mis en file d'attente (${recrues.size} au total).`);
         console.table(scanLog.filter(e => e.resultat.startsWith('ignoré')));
-        setStatus(`Scan terminé (${tabs.length} onglets) : ${countNew} nouveau(x) joueur(s).`, 'ok');
+        setStatus(`Scan terminé (${tabs.length} onglets de chat, ${leaderboard} classements) : ${countNew} nouveau(x) joueur(s).`,
+            leaderboard ? 'ok' : 'warn');
         updateModalUI();
     };
 
@@ -308,19 +315,30 @@
     // 1b. Scanner le leaderboard : les joueurs classés de chaque métier et skill de combat
     // ---------------------------------------------------------------
     const horsJeu = (e) => e.closest('#mwi-tracker-modal') || e.closest('[class*="NavigationBar_"]') || e.closest('[class*="Chat_"]');
-    // Éléments visibles dont le texte est exactement celui demandé (le plus profond de chaque branche)
+    const txt = (e) => (e.textContent || '').trim();
+    // Éléments visibles dont le texte est exactement celui demandé : le plus profond de chaque branche
+    // (un bouton du jeu contient souvent son texte + un élément vide pour l'effet de clic)
     const exactEls = (root, text) => Array.from(root.querySelectorAll('*')).filter(e =>
-        e.children.length === 0 && e.textContent.trim() === text && e.offsetParent !== null && !horsJeu(e));
+        txt(e) === text && !Array.from(e.children).some(c => txt(c) === text) && e.offsetParent !== null && !horsJeu(e));
+    const commonAncestor = (a, b) => { let el = a; while (el && !el.contains(b)) el = el.parentElement; return el; };
 
+    // Page Leaderboard du jeu : le bloc qui contient l'onglet "Guilds" et l'en-tête "Rank" du tableau
     function findLeaderboard() {
-        return Array.from(document.querySelectorAll('[class*="Leaderboard"]')).find(e => e.offsetParent !== null && !horsJeu(e))
-            || (exactEls(document.body, 'Milking').length && exactEls(document.body, 'Rank').length
-                ? document.querySelector('[class*="MainPanel_"]') || document.body : null);
+        const guilds = exactEls(document.body, 'Guilds')[0], rank = exactEls(document.body, 'Rank')[0];
+        return guilds && rank ? commonAncestor(guilds, rank) : null;
+    }
+
+    // Joueurs du classement affiché : composant CharacterName du jeu, sinon 2e colonne du tableau
+    function leaderboardPlayers(root) {
+        const els = Array.from(root.querySelectorAll('[class*="CharacterName_name"][data-name]'));
+        if (els.length) return els.map(readCharacterName);
+        return Array.from(root.querySelectorAll('tr'), tr => tr.children[1] ? txt(tr.children[1]) : '')
+            .filter(n => n && n !== 'Name').map(username => ({ username, ironcow: false, color: '' }));
     }
 
     // Attend que le classement affiché change puis se stabilise (le jeu le charge après le clic)
     async function waitLeaderboard(root, before) {
-        const snap = () => Array.from(root.querySelectorAll('[class*="CharacterName_name"][data-name]'), e => e.getAttribute('data-name')).join('|');
+        const snap = () => leaderboardPlayers(root).map(c => c.username).join('|');
         let last = snap();
         for (let k = 0; k < 30 && last === before; k++) { await sleep(POLL_MS); last = snap(); }
         for (let k = 0; k < 10; k++) {
@@ -332,70 +350,54 @@
         return last;
     }
 
-    window.mwiScanLeaderboard = async function() {
-        if (isProcessing || isScanning) {
-            setStatus('Patiente, une opération est déjà en cours.', 'warn');
-            return;
-        }
-        isScanning = true;
-        const btns = ['mwi-btn-lb', 'mwi-btn-scan', 'mwi-btn-process'].map(id => document.getElementById(id)).filter(Boolean);
-        btns.forEach(b => { b.disabled = true; });
-        const scanLog = [];
+    // Se rend sur la page Leaderboard, parcourt chaque classement et ajoute les joueurs listés
+    async function scanLeaderboard(scanLog) {
         let countNew = 0, classements = 0;
-        try {
-            // Ouvre la page Leaderboard du jeu si elle n'est pas affichée
-            let root = findLeaderboard();
-            if (!root) {
-                const nav = document.querySelector('svg[aria-label="navigationBar.leaderboard"]');
-                if (nav) (nav.closest('[class*="NavigationBar_nav"]') || nav.parentElement).click();
-                for (let k = 0; k < 50 && !root; k++) { await sleep(POLL_MS); root = findLeaderboard(); }
-            }
-            if (!root) { setStatus('Page Leaderboard introuvable : ouvre-la dans le jeu.', 'err'); return; }
-
-            // Onglets du jeu selon le filtre de mode (jamais l'onglet des guildes)
-            const modes = currentMode === 'standard' ? ['Standard'] : currentMode === 'ironcow' ? ['Ironcow'] : ['Standard', 'Ironcow'];
-            for (const mode of modes) {
-                const els = exactEls(root, mode);
-                const tab = els.find(e => e.closest('[role="tab"]')) || els[0];
-                if (!tab) { log(`Leaderboard : onglet "${mode}" introuvable.`); continue; }
-                let before = await waitLeaderboard(root, null);
-                tab.click();
-                await sleep(TAB_SWITCH_WAIT_MS);
-
-                // Liste des classements : le bloc qui contient à la fois "Milking" et "Foraging"
-                const m = exactEls(root, 'Milking')[0], f = exactEls(root, 'Foraging')[0];
-                if (!m || !f) { log(`Leaderboard : liste des classements introuvable (${mode}).`); continue; }
-                let box = m.parentElement;
-                while (box && !box.contains(f)) box = box.parentElement;
-                const labels = Array.from(box.children, c => c.textContent.trim()).filter(Boolean);
-
-                for (const label of labels) {
-                    const el = exactEls(root, label)[0];
-                    if (!el) continue;
-                    setStatus(`Leaderboard ${mode} : ${label}...`, '');
-                    el.click();
-                    before = await waitLeaderboard(root, before);
-                    classements++;
-                    root.querySelectorAll('[class*="CharacterName_name"][data-name]').forEach(nameEl => {
-                        const c = readCharacterName(nameEl);
-                        if (!/^[a-zA-Z0-9_-]{2,30}$/.test(c.username || '')) return;
-                        if (upsertRecruit(c.username, c.color, c.ironcow || mode === 'Ironcow', scanLog, `leaderboard ${label}`, '')) countNew++;
-                    });
-                    updateModalUI();
-                }
-            }
-            log(`Leaderboard : ${countNew} nouveaux joueurs sur ${classements} classements (${recrues.size} au total).`);
-            setStatus(classements ? `Leaderboard : ${countNew} nouveau(x) joueur(s) sur ${classements} classements.`
-                : 'Leaderboard : aucun classement lu (voir console).', classements ? 'ok' : 'err');
-        } catch (e) {
-            log('Erreur pendant le scan du leaderboard :', e);
-            setStatus('Erreur pendant le scan du leaderboard (voir console).', 'err');
-        } finally {
-            isScanning = false;
-            btns.forEach(b => { b.disabled = false; });
-            updateModalUI();
+        const pageAvant = document.querySelector('[class*="NavigationBar_active"]');
+        let root = findLeaderboard();
+        if (!root) {
+            const nav = document.querySelector('svg[aria-label="navigationBar.leaderboard"]');
+            if (!nav) { log('Leaderboard : lien introuvable dans le menu du jeu.'); return { countNew, classements }; }
+            (nav.closest('[class*="NavigationBar_navigationLink"]') || nav.parentElement).click();
+            for (let k = 0; k < 75 && !root; k++) { await sleep(POLL_MS); root = findLeaderboard(); }
         }
-    };
+        if (!root) { log('Leaderboard : page introuvable après ouverture (onglet "Guilds" ou colonne "Rank" absents).'); return { countNew, classements }; }
+
+        // Onglets du jeu selon le filtre de mode (jamais l'onglet des guildes)
+        const modes = currentMode === 'standard' ? ['Standard'] : currentMode === 'ironcow' ? ['Ironcow'] : ['Standard', 'Ironcow'];
+        for (const mode of modes) {
+            const tab = exactEls(root, mode)[0];
+            if (!tab) { log(`Leaderboard : onglet "${mode}" introuvable.`); continue; }
+            let before = await waitLeaderboard(root, null);
+            tab.click();
+            await sleep(TAB_SWITCH_WAIT_MS);
+
+            // Liste des classements : le bloc qui contient à la fois "Milking" et "Foraging"
+            const m = exactEls(root, 'Milking')[0], f = exactEls(root, 'Foraging')[0];
+            const box = m && f && commonAncestor(m, f);
+            if (!box) { log(`Leaderboard : liste des classements introuvable (${mode}).`); continue; }
+            const labels = Array.from(box.children, txt).filter(Boolean);
+
+            for (const label of labels) {
+                const el = exactEls(box, label)[0];
+                if (!el) continue;
+                setStatus(`Leaderboard ${mode} : ${label}...`, '');
+                el.click();
+                before = await waitLeaderboard(root, before);
+                const joueurs = leaderboardPlayers(root);
+                if (!joueurs.length) { log(`Leaderboard : aucun joueur lu dans "${label}" (${mode}).`); continue; }
+                classements++;
+                joueurs.forEach(c => {
+                    if (!/^[a-zA-Z0-9_-]{2,30}$/.test(c.username || '')) return;
+                    if (upsertRecruit(c.username, c.color, c.ironcow || mode === 'Ironcow', scanLog, `leaderboard ${label}`, '')) countNew++;
+                });
+                updateModalUI();
+            }
+        }
+        // Retour à la page du jeu affichée avant le scan
+        if (pageAvant && pageAvant.isConnected && !pageAvant.querySelector('svg[aria-label="navigationBar.leaderboard"]')) pageAvant.click();
+        return { countNew, classements };
+    }
 
     function newRecruit(nom, color = '') {
         return {
@@ -609,7 +611,6 @@
                         <button class="mwi-r-icon" data-size="medium" title="Cases moyennes"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><rect x="1" y="1" width="14" height="4" rx="1"/><rect x="1" y="6" width="14" height="4" rx="1"/><rect x="1" y="11" width="14" height="4" rx="1"/></svg></button>
                         <button class="mwi-r-icon" data-size="small" title="Petites cases : profil au survol"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><rect x="1" y="1" width="14" height="2" rx="1"/><rect x="1" y="4" width="14" height="2" rx="1"/><rect x="1" y="7" width="14" height="2" rx="1"/><rect x="1" y="10" width="14" height="2" rx="1"/><rect x="1" y="13" width="14" height="2" rx="1"/></svg></button>
                     </div>
-                    <button class="mwi-r-btn" id="mwi-btn-lb" title="Ajouter à la liste les joueurs classés dans chaque métier et skill de combat">🏆 Leaderboard</button>
                     <button class="mwi-r-btn" id="mwi-btn-copy" title="Copier les pseudos affichés">Copier</button>
                     <button class="mwi-r-btn" id="mwi-btn-clear" title="Vider la liste">Vider</button>
                 </div>
@@ -622,7 +623,7 @@
                 <div class="mwi-r-pview" id="mwi-profile-view"></div>
                 <div class="mwi-r-progress" id="mwi-progress"><div id="mwi-progress-bar"></div></div>
                 <div class="mwi-r-actions">
-                    <button class="mwi-r-btn" id="mwi-btn-scan">1. Scanner Chat</button>
+                    <button class="mwi-r-btn" id="mwi-btn-scan" title="Scanne le chat puis le leaderboard du jeu">1. Scanner</button>
                     <button class="mwi-r-btn primary" id="mwi-btn-process">2. Vérifier Profils</button>
                 </div>
                 <div class="mwi-r-foot">
@@ -653,7 +654,6 @@
 
         document.getElementById('mwi-btn-scan').addEventListener('click', window.mwiScanChat);
         document.getElementById('mwi-btn-process').addEventListener('click', processUnverifiedProfiles);
-        document.getElementById('mwi-btn-lb').addEventListener('click', window.mwiScanLeaderboard);
         document.getElementById('mwi-btn-close').addEventListener('click', () => setVisible(false));
         launcher.addEventListener('click', () => setVisible(true));
         // Bouton Profile : ouvre le profil dans le jeu ; clic sur la case : ouvre la fiche dans la modale
