@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         Fabio RH Recruit Team
 // @namespace    https://raw.githack.com/jameslemoine/fabio-rh-recruitment/main/Fabio%20RH%20Recruit%20Team-1.0.js
-// @version      1.16
+// @version      1.17
 // @description  RH Tool for guild-free player
 // @author       Yloise and Claude
 // @run-at       document-start
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
 // @copyright    2026 Fabio Lucci - Tous droits reserves - Yloise
-// @resource     FABIO_CSS https://cdn.jsdelivr.net/gh/jameslemoine/fabio-rh-recruitment@4dd9d664cdc94fe41590d2d6628b140ea001f26c/fabio-rh.css
+// @resource     FABIO_CSS https://cdn.jsdelivr.net/gh/jameslemoine/fabio-rh-recruitment@fe15a6f9df187d9872b48ac7279359ff4fa8f75a/fabio-rh.css
 // @grant        GM_getResourceText
 // @grant        unsafeWindow
 // @license      All Rights Reserved; This script is proprietary and cannot be copied, modified, or distributed without explicit permission.
