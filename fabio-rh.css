@@ -47,7 +47,7 @@
 #mwi-radar-launcher .mwi-r-logo { width: 100%; height: 100%; }
 .mwi-r-player { cursor: pointer; }
 .mwi-r-player:hover { text-decoration: underline; }
-.mwi-r-right { display: flex; align-items: center; gap: 6px; }
+.mwi-r-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .mwi-r-profile {
     visibility: hidden; font-weight: 700;
     padding: 3px 12px; font-size: 12px; letter-spacing: .3px; cursor: pointer;
@@ -89,7 +89,7 @@
 .mwi-r-chan.iron:has(input:checked) { border-color: var(--r-warn); }
 .mwi-r-chan input { margin: 0; accent-color: var(--r-accent); }
 .mwi-r-chan-empty { font-size: 11px; font-style: italic; color: var(--r-muted); }
-.mwi-r-iron { font-size: 11px; font-weight: 700; color: var(--r-warn); margin-left: 4px; }
+.mwi-r-iron { font-size: 11px; font-weight: 700; color: var(--r-warn); margin-left: 4px; flex-shrink: 0; }
 .mwi-r-select {
     flex: 0 1 150px; padding: 5px 8px; color: var(--r-text);
     background: var(--r-panel); border: 1px solid var(--r-border);
@@ -124,7 +124,8 @@
 .mwi-r-card {
     padding: 8px 10px; background: var(--r-panel);
     border: 1px solid var(--r-border); border-left: 3px solid var(--r-ok);
-    border-radius: 6px;
+    border-radius: 6px; min-width: 0;
+    transition: border-color .15s, background .15s;
 }
 .mwi-r-card.guild { border-left-color: var(--r-gold); }
 .mwi-r-card.fail { border-left-color: var(--r-err); }
@@ -132,9 +133,6 @@
 .mwi-r-name { font-weight: 700; font-size: 14px; color: var(--r-text); display: flex; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; }
 .mwi-r-who { display: flex; align-items: center; min-width: 0; overflow: hidden; }
 .mwi-r-who .mwi-r-player { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mwi-r-iron { flex-shrink: 0; }
-.mwi-r-right { flex-shrink: 0; }
-.mwi-r-card { min-width: 0; transition: border-color .15s, background .15s; }
 .mwi-r-card:hover { background: var(--r-panel-2); border-color: var(--r-accent); }
 .mwi-r-tag { font-size: 11px; font-weight: 700; color: var(--r-muted); white-space: nowrap; }
 .mwi-r-card:not(.guild):not(.fail):not(.pending) .mwi-r-tag { color: var(--r-ok); }
@@ -211,8 +209,6 @@
 .mwi-r-pstat.guild { color: var(--r-gold); }
 .mwi-r-pstat.fail { color: var(--r-err); }
 .mwi-r-pstat.pending { color: var(--r-muted); }
-.mwi-r-plines { list-style: none; margin: 0; padding: 0; columns: 220px; column-gap: 20px; font-size: 12px; }
-.mwi-r-plines li { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,.04); break-inside: avoid; }
 .mwi-r-ptab:focus { outline: none; }
 .mwi-r-rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 0 20px; margin: 0; font-size: 13px; }
 .mwi-r-row {
@@ -377,3 +373,9 @@
     border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,.5);
 }
 #mwi-radar-launcher:hover { border-color: var(--r-accent); background: var(--r-panel-2); }
+
+/* Voyant en ligne / hors ligne */
+.mwi-r-dot { display: inline-block; flex-shrink: 0; width: 8px; height: 8px; margin-right: 6px; vertical-align: middle; border-radius: 50%; background: var(--r-muted); opacity: .5; }
+.mwi-r-dot.on { background: var(--r-ok); opacity: 1; box-shadow: 0 0 6px var(--r-ok); }
+.mwi-r-dot.off { background: var(--r-err); opacity: .8; }
+.mwi-r-dot.masque { background: transparent; border: 1px solid var(--r-muted); }
