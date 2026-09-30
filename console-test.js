@@ -1,7 +1,7 @@
 // Fichier généré par tools/build-console.js - ne pas modifier à la main.
 // Coller tout le contenu dans la console du jeu (F12) pour tester sans Tampermonkey.
-// Version : 0e40b3b - Canaux à scanner : Leaderboard et Guildes cochables comme les canaux du chat
-console.log('[Fabio RH] console-test :', "0e40b3b - Canaux à scanner : Leaderboard et Guildes cochables comme les canaux du chat");
+// Version : 433c677 - Vérification des profils : bouton Arrêter
+console.log('[Fabio RH] console-test :', "433c677 - Vérification des profils : bouton Arrêter");
 (function() {
     'use strict';
 
@@ -26,6 +26,7 @@ console.log('[Fabio RH] console-test :', "0e40b3b - Canaux à scanner : Leaderbo
     const guildes = new Map(); // nom -> { nom, stats: { classement: { rang, valeurs: { colonne: texte } } } }
     let isProcessing = false;
     let isScanning = false;
+    let arretDemande = false; // bouton « Arrêter » pendant la vérification des profils
     let currentFilter = 'free';
     let currentMode = 'all'; // 'all' | 'standard' | 'ironcow'
 
@@ -1640,6 +1641,7 @@ console.log('[Fabio RH] console-test :', "0e40b3b - Canaux à scanner : Leaderbo
                 for (let reprise = 0; ; reprise++) {
                     const wait = dernier + intervalle - Date.now();
                     if (wait > 0) await sleep(wait);
+                    if (arretDemande) return { res: undefined, spam: false, arrete: true };
                     const sentAt = dernier = Date.now();
                     if (action() === false) return { res: undefined, spam: false, impossible: true };
                     const res = await attendre();
@@ -1657,14 +1659,22 @@ console.log('[Fabio RH] console-test :', "0e40b3b - Canaux à scanner : Leaderbo
     const limiteurProfils = creerLimiteur('profils');
 
     async function pauseAntispam(prefix) {
-        for (let left = PAUSE_ANTISPAM_MS; left > 0; left -= 1000) {
+        for (let left = PAUSE_ANTISPAM_MS; left > 0 && !arretDemande; left -= 1000) {
             setStatus(`${prefix} Anti-spam du jeu : pause ${Math.ceil(left / 1000)}s...`, 'warn');
             await sleep(Math.min(1000, left));
         }
     }
 
     async function processUnverifiedProfiles() {
-        if (isProcessing || isScanning) return;
+        // Pendant la vérification, le même bouton sert à l'arrêter (après le profil en cours)
+        if (isProcessing) {
+            arretDemande = true;
+            const b = document.getElementById('mwi-btn-process');
+            b.disabled = true;
+            b.textContent = 'Arrêt...';
+            return;
+        }
+        if (isScanning) return;
 
         // On ne vérifie que le mode choisi (Standard / IC) pour gagner du temps.
         // Avec le filtre "Échecs", on retente les profils en échec (ex. bloqués par l'anti-spam).
@@ -1684,9 +1694,10 @@ console.log('[Fabio RH] console-test :', "0e40b3b - Canaux à scanner : Leaderbo
         const progress = document.getElementById('mwi-progress');
         const bar = document.getElementById('mwi-progress-bar');
 
-        btn.disabled = true;
+        arretDemande = false;
         scanBtn.disabled = true;
-        btn.textContent = 'En cours...';
+        btn.textContent = '■ Arrêter';
+        btn.title = 'Arrêter la vérification après le profil en cours';
         progress.style.display = 'block';
         bar.style.width = '0%';
 
@@ -1694,6 +1705,7 @@ console.log('[Fabio RH] console-test :', "0e40b3b - Canaux à scanner : Leaderbo
         const spamWatch = startSpamWatch();
         try {
             for (const data of queue) {
+                if (arretDemande) break;
                 const username = data.nom;
                 index++;
                 const prefix = `${index}/${toVerify}`;
@@ -1702,6 +1714,7 @@ console.log('[Fabio RH] console-test :', "0e40b3b - Canaux à scanner : Leaderbo
                     setStatus(`Vérification ${prefix} : ${username}...`, '');
                     return window.mwiSendProfileCommand(username);
                 }, () => analyzeProfile(username), prefix, ok => ok);
+                if (o.arrete) { index--; break; } // arrêté pendant l'attente : ce profil reste en file
 
                 if (!o.res) {
                     data.verifie = true;
@@ -1710,14 +1723,16 @@ console.log('[Fabio RH] console-test :', "0e40b3b - Canaux à scanner : Leaderbo
                 bar.style.width = `${Math.round((index / toVerify) * 100)}%`;
                 updateModalUI();
             }
-            setStatus('Vérification terminée.', 'ok');
+            setStatus(arretDemande ? `Vérification arrêtée (${index}/${toVerify} traités).` : 'Vérification terminée.', arretDemande ? 'warn' : 'ok');
         } catch (e) {
             log('Erreur pendant la vérification :', e);
             setStatus('Erreur pendant la vérification (voir console).', 'err');
         } finally {
             spamWatch.disconnect();
             isProcessing = false;
+            arretDemande = false;
             btn.disabled = false;
+            btn.title = '';
             scanBtn.disabled = false;
             btn.textContent = '2. Vérifier Profils';
             progress.style.display = 'none';
