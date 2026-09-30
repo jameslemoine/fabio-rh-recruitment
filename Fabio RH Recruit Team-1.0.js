@@ -390,6 +390,8 @@
     // L'intervalle s'allonge dès qu'une demande reste sans réponse.
     const LB_INTERVALLE_MIN_MS = 1200, LB_INTERVALLE_MAX_MS = 4000, LB_ATTENTE_MS = 8000;
     let lbIntervalleMs = LB_INTERVALLE_MIN_MS;
+    // Pauses (en secondes) après 1, 2, 3... demandes sans réponse à la suite ; au-delà, le scan de la liste s'arrête
+    const LB_PAUSES_S = [20, 40, 60, 60];
 
     // Attend la réponse du serveur à une demande faite à l'instant t0, puis la fin de l'intervalle minimum
     async function waitLb(seq, t0) {
@@ -418,21 +420,34 @@
             el.click();
             return waitLb(seq, t0);
         };
-        const ordre = tabs.filter(t => !selected(t)).concat(tabs.filter(selected));
-        const rates = [];
-        let recus = 0;
-        for (let i = 0; i < ordre.length; i++) {
-            if (await ouvrir(ordre[i], i + 1, ordre.length)) recus++; else rates.push(ordre[i]);
-        }
-        // Second passage, plus lent, sur les classements restés sans réponse
-        for (let i = 0; i < rates.length; i++) {
-            if (selected(rates[i])) { // déjà affiché : on passe par un autre classement pour relancer la demande
-                const autre = tabs.find(t => t !== rates[i]);
-                if (autre) await ouvrir(autre, i + 1, rates.length, true);
+        const file = tabs.filter(t => !selected(t)).concat(tabs.filter(selected));
+        const total = file.length, essais = new Map();
+        let recus = 0, echecs = 0; // echecs : demandes sans réponse à la suite
+        while (file.length) {
+            // Le serveur n'accorde qu'un petit nombre de demandes à la suite : après un silence, on le laisse souffler
+            if (echecs) {
+                if (echecs > LB_PAUSES_S.length) break;
+                const pause = LB_PAUSES_S[echecs - 1];
+                for (let s = pause; s > 0; s--) {
+                    setStatus(`${prefix} : limite du serveur atteinte, reprise dans ${s} s (${recus}/${total} lus)...`, 'warn');
+                    await sleep(1000);
+                }
             }
-            if (await ouvrir(rates[i], i + 1, rates.length, true)) recus++;
-            else log(`${prefix} : pas de réponse du serveur pour "${txt(rates[i])}".`);
+            let el = file.shift();
+            if (selected(el)) { // déjà affiché : on passe par un autre classement pour relancer la demande
+                const autre = file.find(t => !selected(t)) || tabs.find(t => t !== el);
+                if (autre && file.includes(autre)) { file.unshift(el); file.splice(file.indexOf(autre), 1); el = autre; }
+                else if (autre) await ouvrir(autre, recus + 1, total, true);
+            }
+            const n = essais.get(el) || 0;
+            if (await ouvrir(el, recus + 1, total, n > 0)) { recus++; echecs = 0; }
+            else {
+                echecs++;
+                essais.set(el, n + 1);
+                file.push(el); // il repassera en fin de file, après la pause
+            }
         }
+        file.forEach(t => log(`${prefix} : pas de réponse du serveur pour "${txt(t)}".`));
         return recus;
     }
 
