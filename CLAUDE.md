@@ -4,6 +4,8 @@ Userscript Tampermonkey / Greasy Fork pour Milky Way Idle : scanne le chat, vér
 
 Dépôt : https://github.com/jameslemoine/fabio-rh-recruitment (compte GitHub `jameslemoine`, pas `lemoinejames`).
 
+Le dépôt est **privé** depuis le 1er octobre 2026 : jsDelivr ne peut plus servir de nouveau `fabio-rh.css` (seul le CSS de la 1.19, déjà en cache, répondait encore), et Greasy Fork ne peut plus lire le script sur GitHub. Avant la prochaine publication, intégrer le CSS dans le script (plus de `@resource`) et publier sur Greasy Fork à la main ; la procédure « Push sur main » ci-dessous est à adapter en conséquence.
+
 ## Fichiers
 
 - `Fabio RH Recruit Team-1.0.js` : le userscript. Il charge le CSS via `@resource FABIO_CSS` + `GM_getResourceText`.
