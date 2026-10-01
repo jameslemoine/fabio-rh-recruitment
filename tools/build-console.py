@@ -1,6 +1,6 @@
 # Équivalent Python de tools/build-console.js (Node absent sur cette machine)
 import re, json, subprocess
-SOURCES = ['Fabio RH Recruit Team-1.0.js', 'fabio-rh.css']
+SOURCES = ['Fabio RH Recruit Team-prive.js', 'fabio-rh.css']
 git = lambda *a: subprocess.run(['git', *a, '--', *SOURCES], capture_output=True, text=True).stdout.strip()
 js, css = (open(f).read() for f in SOURCES)
 body = re.sub(r'// ==UserScript==[\s\S]*?// ==/UserScript==\s*', '', js, count=1)
