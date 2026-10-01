@@ -152,6 +152,21 @@
 .mwi-r-who .mwi-r-player { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mwi-r-card:hover { background: var(--r-panel-2); border-color: var(--r-accent); }
 .mwi-r-tag { font-size: 11px; font-weight: 700; color: var(--r-muted); white-space: nowrap; }
+/* Niveau du skill trié (ou du meilleur skill) ; titres des groupes « Par meilleur skill » */
+.mwi-r-lvl {
+    padding: 1px 7px; font-size: 11px; white-space: nowrap; color: var(--r-muted);
+    background: var(--r-bg); border: 1px solid var(--r-border); border-radius: 10px;
+}
+.mwi-r-lvl i { font-style: normal; }
+.mwi-r-lvl b { color: var(--r-gold); }
+#mwi-tracker-modal[data-size="small"] .mwi-r-lvl i { display: none; }
+.mwi-r-group {
+    grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 2px 2px 4px;
+    font-size: 12px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--r-gold);
+    border-bottom: 1px solid var(--r-border);
+}
+.mwi-r-group:first-child { margin-top: 0; }
+.mwi-r-group span { margin-left: auto; font-weight: 400; color: var(--r-muted); }
 .mwi-r-card:not(.guild):not(.fail):not(.pending) .mwi-r-tag { color: var(--r-ok); }
 .mwi-r-card.fail .mwi-r-tag { color: var(--r-err); }
 .mwi-r-card.guild .mwi-r-tag { color: var(--r-gold); }

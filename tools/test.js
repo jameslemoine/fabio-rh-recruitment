@@ -17,8 +17,10 @@ function extraire(nom) {
 }
 
 const noms = ['esc', 'num', 'parseProfile', 'hridName', 'pretty', 'nb', 'TRIGGER_FR', 'trig', 'triggersText',
-    'isValue', 'isLabel', 'cleanLine', 'rowsToHtml', 'linesToHtml'];
-const f = new Function(noms.map(extraire).join('\n') + `\nreturn { ${noms.join(', ')} };`)();
+    'isValue', 'isLabel', 'cleanLine', 'rowsToHtml', 'linesToHtml', 'niveauxProfil', 'meilleurSkill'];
+// SKILLS tient sur deux lignes : repris tel quel
+const skills = src.match(/^    const SKILLS = \[[\s\S]*?\];$/m)[0];
+const f = new Function(skills + '\n' + noms.map(extraire).join('\n') + `\nreturn { ${noms.join(', ')} };`)();
 
 let ok = 0, ko = 0;
 function test(nom, fn) {
@@ -65,6 +67,19 @@ test('linesToHtml : libellés, jauge et échappement', () => {
     assert.ok(html.includes('<dt>Total Level</dt><dd>1234</dd>'));
     assert.ok(html.includes('mwi-r-row done') && html.includes('width: 100%'));
     assert.ok(html.includes('&lt;b&gt;') && !html.includes('<b>'));
+});
+
+test('niveauxProfil : skills sans total_level', () => {
+    assert.deepStrictEqual(f.niveauxProfil({ characterSkills: [
+        { skillHrid: '/skills/milking', level: 106 }, { skillHrid: '/skills/total_level', level: 1861 },
+        { skillHrid: '/skills/brewing', level: 135 }] }), { milking: 106, brewing: 135 });
+    assert.strictEqual(f.niveauxProfil(null), null);
+    assert.strictEqual(f.niveauxProfil({ characterSkills: [] }), null);
+});
+test('meilleurSkill : plus haut niveau, égalité dans l\'ordre du jeu', () => {
+    assert.deepStrictEqual(f.meilleurSkill({ milking: 106, brewing: 135, magic: 120 }), { skill: 'brewing', niveau: 135 });
+    assert.deepStrictEqual(f.meilleurSkill({ melee: 90, foraging: 90 }), { skill: 'foraging', niveau: 90 });
+    assert.strictEqual(f.meilleurSkill(null), null);
 });
 
 console.log(`${ok} test(s) réussi(s), ${ko} échec(s).`);
