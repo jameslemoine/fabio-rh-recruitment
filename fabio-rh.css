@@ -73,9 +73,16 @@
 .mwi-r-icon:hover { background: var(--r-panel-2); border-color: var(--r-accent); }
 .mwi-r-icon.close:hover { background: var(--r-err); border-color: var(--r-err); }
 
-.mwi-r-body { display: flex; flex-direction: column; gap: 10px; padding: 10px; flex: 1; min-height: 0; }
+.mwi-r-body { display: flex; flex-direction: column; gap: 12px; padding: 12px; flex: 1; min-height: 0; }
 
-.mwi-r-toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+/* Barre du haut : recherche + icônes (guildes, copier, vider), puis filtres et taille des cases */
+.mwi-r-toolbar { display: flex; gap: 8px; align-items: center; }
+.mwi-r-toolbar .mwi-r-search { flex: 1; }
+.mwi-r-tools { display: flex; gap: 4px; flex-shrink: 0; }
+.mwi-r-tools .mwi-r-icon { width: 30px; height: 30px; font-size: 15px; }
+.mwi-r-filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.mwi-r-filters .mwi-r-select { flex: 1 1 110px; }
+.mwi-r-filters .mwi-r-sizes { margin-left: auto; }
 .mwi-r-db[data-etat="off"] { color: var(--r-muted); }
 .mwi-r-db[data-etat="on"] { color: var(--r-ok); border-color: var(--r-ok); }
 .mwi-r-db[data-etat="attente"] { color: var(--r-warn); border-color: var(--r-warn); }
@@ -95,6 +102,13 @@
 #mwi-tracker-modal[data-role="lecteur"] .mwi-r-actions { display: none; }
 
 .mwi-r-chans-head { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--r-muted); }
+.mwi-r-chans-toggle { padding: 0; font-size: 11px; color: var(--r-muted); background: none; border: 0; cursor: pointer; }
+.mwi-r-chans-toggle:hover { color: var(--r-text); }
+.mwi-r-chans-toggle b { margin-left: 4px; font-weight: 400; }
+.mwi-r-chans-toggle .fl { display: inline-block; transition: transform .15s; }
+#mwi-tracker-modal[data-chans="ouvert"] .mwi-r-chans-toggle .fl { transform: rotate(90deg); }
+/* Canaux repliés par défaut */
+#mwi-tracker-modal:not([data-chans="ouvert"]) .mwi-r-chans { display: none; }
 .mwi-r-chans { display: flex; flex-wrap: wrap; gap: 4px; }
 .mwi-r-chan {
     display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
@@ -129,7 +143,7 @@
     overflow-x: hidden; padding-right: 2px;
     flex: 1; min-height: 120px; max-height: 320px; overflow-y: auto;
     list-style: none; margin: 0; padding: 0;
-    display: grid; grid-template-columns: 1fr; gap: 6px; align-content: start;
+    display: grid; grid-template-columns: 1fr; gap: 8px; align-content: start;
 }
 #mwi-tracker-modal[data-mode="max"] .mwi-r-list {
     max-height: none;
@@ -139,7 +153,7 @@
 .mwi-r-list::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }
 
 .mwi-r-card {
-    padding: 8px 10px; background: var(--r-panel);
+    padding: 10px 12px; background: var(--r-panel);
     border: 1px solid var(--r-border); border-left: 3px solid var(--r-ok);
     border-radius: 6px; min-width: 0;
     transition: border-color .15s, background .15s;
@@ -172,7 +186,7 @@
 #mwi-tracker-modal[data-mode="max"] .mwi-r-skills,
 #mwi-tracker-modal[data-sized="1"] .mwi-r-skills { max-height: none; }
 .mwi-r-sk {
-    position: relative; display: flex; align-items: center; gap: 8px; width: 100%; padding: 4px 6px;
+    position: relative; display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px;
     font-size: 13px; text-align: left; cursor: pointer; color: var(--r-text);
     background: transparent; border: 0; border-left: 3px solid transparent;
     transition: background .15s;
@@ -201,7 +215,7 @@
 .mwi-r-card:not(.guild):not(.fail):not(.pending) .mwi-r-tag { color: var(--r-ok); }
 .mwi-r-card.fail .mwi-r-tag { color: var(--r-err); }
 .mwi-r-card.guild .mwi-r-tag { color: var(--r-gold); }
-.mwi-r-stats { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 5px; font-size: 12px; color: var(--r-muted); }
+.mwi-r-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; font-size: 12px; color: var(--r-muted); }
 .mwi-r-stats b { color: var(--r-text); font-weight: 600; }
 .mwi-r-sizes { display: flex; gap: 2px; padding: 2px; background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px; }
 .mwi-r-sizes .mwi-r-icon { border-color: transparent; color: var(--r-muted); }
@@ -211,16 +225,16 @@
 .mwi-r-details dd { margin: 0; color: var(--r-text); font-weight: 600; }
 
 /* Taille des cases : grandes = toutes les infos en liste, moyennes = stats sur une ligne, petites = nom seul */
-#mwi-tracker-modal[data-size="large"] .mwi-r-card { padding: 10px 12px; }
+#mwi-tracker-modal[data-size="large"] .mwi-r-card { padding: 12px 14px; }
 #mwi-tracker-modal[data-size="large"] .mwi-r-name { font-size: 15px; }
 #mwi-tracker-modal[data-size="large"] .mwi-r-stats,
 #mwi-tracker-modal[data-size="large"] .mwi-r-tag { display: none; }
 #mwi-tracker-modal[data-size="large"] .mwi-r-details { display: grid; }
 #mwi-tracker-modal[data-size="large"][data-mode="max"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
-#mwi-tracker-modal[data-size="small"] .mwi-r-card { padding: 4px 8px; }
+#mwi-tracker-modal[data-size="small"] .mwi-r-card { padding: 6px 10px; }
 #mwi-tracker-modal[data-size="small"] .mwi-r-name { font-size: 13px; align-items: center; }
 #mwi-tracker-modal[data-size="small"] .mwi-r-stats { display: none; }
-#mwi-tracker-modal[data-size="small"] .mwi-r-list { gap: 3px; }
+#mwi-tracker-modal[data-size="small"] .mwi-r-list { gap: 4px; }
 #mwi-tracker-modal[data-size="small"][data-mode="max"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
 #mwi-tracker-modal[data-size="small"] .mwi-r-card { border-left-width: 1px; }
 #mwi-tracker-modal[data-size="small"] .mwi-r-tag { font-size: 0; }
@@ -237,11 +251,13 @@
 #mwi-tracker-modal[data-view="profile"] .mwi-r-main,
 #mwi-tracker-modal[data-view="profile"] .mwi-r-list,
 #mwi-tracker-modal[data-view="profile"] .mwi-r-toolbar,
+#mwi-tracker-modal[data-view="profile"] .mwi-r-filters,
 #mwi-tracker-modal[data-view="profile"] .mwi-r-chans-head,
 #mwi-tracker-modal[data-view="profile"] .mwi-r-chans { display: none; }
 #mwi-tracker-modal[data-view="guilds"] .mwi-r-main,
 #mwi-tracker-modal[data-view="guilds"] .mwi-r-list,
 #mwi-tracker-modal[data-view="guilds"] .mwi-r-toolbar,
+#mwi-tracker-modal[data-view="guilds"] .mwi-r-filters,
 #mwi-tracker-modal[data-view="guilds"] .mwi-r-chans-head,
 #mwi-tracker-modal[data-view="guilds"] .mwi-r-chans { display: none; }
 .mwi-r-phead { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--r-border); }
