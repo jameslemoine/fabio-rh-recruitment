@@ -10,6 +10,10 @@
 // @copyright    2026 Fabio Lucci - Tous droits reserves - Yloise
 // @resource     FABIO_CSS https://cdn.jsdelivr.net/gh/jameslemoine/fabio-rh-recruitment@42ea415b857a4b4c13d74d9342a36ec80ac441f0/fabio-rh.css
 // @grant        GM_getResourceText
+// @grant        GM_xmlhttpRequest
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @connect      cyvtgzkepticodlcrtjb.supabase.co
 // @grant        unsafeWindow
 // @license      All Rights Reserved; This script is proprietary and cannot be copied, modified, or distributed without explicit permission.
 // ==/UserScript==
@@ -41,6 +45,7 @@
     let isProcessing = false;
     let isScanning = false;
     let arretDemande = false; // bouton « Arrêter » pendant la vérification des profils
+    let enAttente = null; // pseudo dont la commande /profile est préremplie, en attente de la touche Entrée du joueur
     let currentFilter = 'free';
     let currentMode = 'all'; // 'all' | 'standard' | 'ironcow'
 
@@ -80,6 +85,259 @@
         }
     } catch (e) {
         log('Écoute des profils impossible, lecture à l\'écran uniquement :', e);
+    }
+
+    // ---------------------------------------------------------------
+    // 0b. Base Supabase : chaque scan et chaque vérification y est enregistré
+    // ---------------------------------------------------------------
+    // Accès réservé aux recruteurs (compte Supabase autorisé dans la table recruteurs, RLS côté base).
+    // La clé publishable ne donne accès à rien sans connexion. Rien n'est envoyé au serveur du jeu.
+    const DB_URL = 'https://cyvtgzkepticodlcrtjb.supabase.co';
+    const DB_KEY = 'sb_publishable_iDo61JeURJa-DFmvwFQfWA_iNvrGi3M';
+    const DB_SESSION = 'fabio-db-session';
+    const DB_FILE = 'fabio-db-file'; // envois en attente (pas connecté, réseau coupé...)
+    const DB_FILE_MAX = 300;
+    let dbEnvoi = false;
+
+    // Stockage du gestionnaire de scripts (hors de la page du jeu), localStorage dans la console
+    const gmGet = (k, d) => {
+        try { return typeof GM_getValue === 'function' ? GM_getValue(k, d) : (JSON.parse(localStorage.getItem(k)) ?? d); } catch (e) { return d; }
+    };
+    const gmSet = (k, v) => {
+        try { if (typeof GM_setValue === 'function') GM_setValue(k, v); else localStorage.setItem(k, JSON.stringify(v)); } catch (e) { }
+    };
+
+    // Requête HTTP : GM_xmlhttpRequest (pas bloqué par la CSP du jeu), fetch dans la console
+    function dbHttp(method, path, body, token) {
+        const headers = { apikey: DB_KEY, 'Content-Type': 'application/json', Prefer: 'return=minimal' };
+        if (token) headers.Authorization = `Bearer ${token}`;
+        const data = body === undefined ? undefined : JSON.stringify(body);
+        const lire = (status, text) => {
+            let json = null;
+            try { json = text ? JSON.parse(text) : null; } catch (e) { }
+            return { ok: status >= 200 && status < 300, status, json };
+        };
+        if (typeof GM_xmlhttpRequest !== 'function') {
+            return fetch(DB_URL + path, { method, headers, body: data })
+                .then(async r => lire(r.status, await r.text()), () => ({ ok: false, status: 0, json: null }));
+        }
+        return new Promise(resolve => GM_xmlhttpRequest({
+            method, url: DB_URL + path, headers, data,
+            onload: r => resolve(lire(r.status, r.responseText)),
+            onerror: () => resolve({ ok: false, status: 0, json: null }),
+            ontimeout: () => resolve({ ok: false, status: 0, json: null })
+        }));
+    }
+
+    const dbSession = () => gmGet(DB_SESSION, null);
+    // Rôle du compte (table recruteurs) : « rh » scanne, vérifie et écrit ; « lecteur » consulte seulement
+    const estRh = () => (dbSession() || {}).role === 'rh';
+    function garderSession(json, role) {
+        const s = { access: json.access_token, refresh: json.refresh_token, expire: json.expires_at * 1000, email: json.user && json.user.email, role };
+        gmSet(DB_SESSION, s);
+        return s;
+    }
+
+    async function dbConnexion(email, password) {
+        const r = await dbHttp('POST', '/auth/v1/token?grant_type=password', { email, password });
+        if (!r.ok) return (r.json && (r.json.msg || r.json.error_description || r.json.message)) || `erreur ${r.status}`;
+        garderSession(r.json);
+        dbVider();
+        dbCharger();
+        return '';
+    }
+
+    async function dbDeconnexion() {
+        const s = dbSession();
+        gmSet(DB_SESSION, null);
+        if (s) await dbHttp('POST', '/auth/v1/logout', {}, s.access);
+        majBase();
+    }
+
+    // Jeton valide (rafraîchi une minute avant expiration), null si pas connecté
+    async function dbJeton() {
+        const s = dbSession();
+        if (!s) return null;
+        if (Date.now() < s.expire - 60000) return s.access;
+        const r = await dbHttp('POST', '/auth/v1/token?grant_type=refresh_token', { refresh_token: s.refresh });
+        if (r.ok) return garderSession(r.json, s.role).access;
+        if (r.status >= 400 && r.status < 500) gmSet(DB_SESSION, null); // session révoquée : reconnexion nécessaire
+        return null;
+    }
+
+    // Ajoute un envoi à la file puis la vide dans l'ordre ; un échec garde le reste pour plus tard
+    function dbEnvoyer(type, donnees) {
+        if (!estRh()) return; // un lecteur n'écrit rien
+        const file = gmGet(DB_FILE, []);
+        file.push({ type, donnees });
+        gmSet(DB_FILE, file.slice(-DB_FILE_MAX));
+        dbVider();
+    }
+
+    async function dbVider() {
+        if (dbEnvoi) return;
+        dbEnvoi = true;
+        try {
+            for (;;) {
+                const file = gmGet(DB_FILE, []);
+                if (!file.length) break;
+                const jeton = await dbJeton();
+                if (!jeton) break;
+                const { type, donnees } = file[0];
+                const r = type === 'scan'
+                    ? await dbHttp('POST', '/rest/v1/rpc/enregistrer_scan', { scan: donnees }, jeton)
+                    : await dbHttp('POST', '/rest/v1/verifications', donnees, jeton);
+                if (!r.ok) {
+                    log(`Base : envoi ${type} refusé (${r.status})`, r.json);
+                    // Données refusées par la base : on ne bloque pas la file. 403 (compte pas encore autorisé)
+                    // ou réseau : on garde tout pour plus tard
+                    if (r.status === 400 || r.status === 409 || r.status === 422) gmSet(DB_FILE, gmGet(DB_FILE, []).slice(1));
+                    else break;
+                    continue;
+                }
+                gmSet(DB_FILE, gmGet(DB_FILE, []).slice(1));
+            }
+        } finally {
+            dbEnvoi = false;
+            majBase();
+        }
+    }
+
+    // Une vérification : résultat lu + profil brut du WebSocket + sections lues à l'écran
+    function dbVerification(p) {
+        const entier = (v) => /^\d+$/.test(String(v)) ? +v : null;
+        const brut = profilsBruts.get(p.nom) || null;
+        const c = brut && brut.sharableCharacter;
+        let sections = null;
+        try { sections = p.profil ? JSON.parse(JSON.stringify(p.profil.sections)) : null; } catch (e) { }
+        dbEnvoyer('verification', {
+            joueur: p.nom,
+            verifie_le: new Date().toISOString(),
+            succes: !p.echec,
+            a_guilde: p.echec ? null : p.hasGuild,
+            guilde: p.echec ? null : p.guilde || null,
+            rang: p.echec ? null : p.rang || null,
+            total_level: p.echec ? null : entier(p.stats.total),
+            combat_level: p.echec ? null : entier(p.stats.combat),
+            age: p.echec || p.stats.age === '?' ? null : p.stats.age,
+            ironcow: p.ironcow,
+            en_ligne: !c || c.hideOnlineStatus ? null : !!c.isOnline,
+            profil_brut: brut,
+            sections
+        });
+    }
+
+    // Un scan : onglets, compteurs, journal complet (y compris les lignes ignorées), joueurs vus et classements de guildes
+    function dbScan({ debut, onglets, totalMessages, countNew, leaderboard, guildCats, scanLog }) {
+        const vus = new Set(scanLog.filter(e => recrues.has(e.pseudo)).map(e => e.pseudo));
+        const lesGuildes = [];
+        if (guildCats) guildes.forEach(g => Object.entries(g.stats).forEach(([classement, st]) =>
+            lesGuildes.push({ guilde: g.nom, classement, rang: Number.isFinite(st.rang) ? st.rang : null, valeurs: st.valeurs })));
+        dbEnvoyer('scan', {
+            debut,
+            onglets,
+            sources: ['chat', ...(sourceActive(SOURCE_LEADERBOARD) ? ['leaderboard'] : []), ...(sourceActive(SOURCE_GUILDES) ? ['guildes'] : [])],
+            mode: currentMode,
+            nb_messages: totalMessages,
+            nb_nouveaux: countNew,
+            nb_classements: leaderboard,
+            joueurs: Array.from(vus, nom => { const r = recrues.get(nom); return { nom, ironcow: !!r.ironcow, couleur: r.color || '' }; }),
+            entrees: scanLog.map(e => ({ pseudo: String(e.pseudo || '-'), resultat: e.resultat, onglet: e.onglet || null, brut: e.brut || null })),
+            guildes: lesGuildes
+        });
+    }
+
+    // Lecture paginée d'une table (PostgREST renvoie 1000 lignes au plus par requête)
+    async function dbLire(chemin, jeton) {
+        const lignes = [];
+        for (let debut = 0; ; debut += 1000) {
+            const r = await dbHttp('GET', `${chemin}&limit=1000&offset=${debut}`, undefined, jeton);
+            if (!r.ok || !Array.isArray(r.json)) return r.ok ? lignes : null;
+            lignes.push(...r.json);
+            if (r.json.length < 1000) return lignes;
+        }
+    }
+
+    // Au chargement et à la connexion : joueurs déjà repérés (avec leur dernier statut) et derniers classements de guildes.
+    // Les profils bruts ne sont chargés qu'à l'ouverture d'une fiche (dbFiche).
+    async function dbCharger() {
+        const jeton = await dbJeton();
+        if (!jeton) return;
+        const moi = await dbHttp('GET', '/rest/v1/recruteurs?select=role,actif', undefined, jeton);
+        if (moi.ok) {
+            const ligne = (moi.json || [])[0];
+            const s = dbSession();
+            if (s) gmSet(DB_SESSION, { ...s, role: ligne && ligne.actif ? ligne.role : 'aucun' });
+            majBase();
+            if (!ligne || !ligne.actif) { setStatus('Compte connecté mais pas encore autorisé : demande un accès.', 'warn'); return; }
+        }
+        const joueurs = await dbLire('/rest/v1/joueurs?select=nom,ironcow,couleur,statut,a_guilde,guilde,rang,total_level,combat_level,age&order=nom', jeton);
+        if (!joueurs) { log('Base : lecture des joueurs impossible.'); return; }
+        let ajoutes = 0;
+        for (const j of joueurs) {
+            let p = recrues.get(j.nom);
+            if (!p) { p = newRecruit(j.nom, j.couleur); recrues.set(j.nom, p); ajoutes++; }
+            if (j.ironcow) p.ironcow = true;
+            if (!p.color && j.couleur) p.color = j.couleur;
+            // Ce qui a été vérifié pendant cette session fait foi
+            if (p.verifie || j.statut === 'pending') continue;
+            p.verifie = true;
+            p.echec = j.statut === 'fail';
+            p.hasGuild = !!j.a_guilde;
+            p.guilde = j.guilde || '';
+            p.rang = j.rang || '';
+            p.stats = { total: j.total_level ?? '?', combat: j.combat_level ?? '?', age: j.age || '?' };
+            p.ironcow = !!j.ironcow;
+        }
+
+        // Classements du dernier scan qui a lu l'onglet Guilds (sauf si un scan de cette session les a déjà lus)
+        if (!guildes.size) {
+            const dernier = await dbHttp('GET', '/rest/v1/guildes_classements?select=scan_id&order=scan_id.desc&limit=1', undefined, jeton);
+            const scanId = dernier.ok && dernier.json && dernier.json[0] && dernier.json[0].scan_id;
+            const lignes = scanId ? await dbLire(`/rest/v1/guildes_classements?select=guilde,classement,rang,valeurs&scan_id=eq.${scanId}&order=id`, jeton) : null;
+            (lignes || []).forEach(l => {
+                const g = guildes.get(l.guilde) || { nom: l.guilde, stats: {} };
+                g.stats[l.classement] = { rang: l.rang ?? NaN, valeurs: l.valeurs || {} };
+                guildes.set(l.guilde, g);
+            });
+        }
+        log(`Base : ${joueurs.length} joueurs lus (${ajoutes} ajoutés à la liste), ${guildes.size} guildes.`);
+        setStatus(`Base : ${joueurs.length} joueur(s) chargé(s).`, 'ok');
+        updateModalUI();
+    }
+
+    // Fiche d'un joueur vérifié lors d'une session précédente : profil brut et onglets de sa dernière vérification réussie
+    const fichesDemandees = new Set();
+    async function dbFiche(p) {
+        if (!p.verifie || p.echec || profilsBruts.has(p.nom) || fichesDemandees.has(p.nom)) return;
+        fichesDemandees.add(p.nom);
+        const jeton = await dbJeton();
+        if (!jeton) { fichesDemandees.delete(p.nom); return; }
+        const r = await dbHttp('GET', `/rest/v1/verifications?select=profil_brut,sections&joueur=eq.${encodeURIComponent(p.nom)}&succes=is.true&order=verifie_le.desc&limit=1`, undefined, jeton);
+        const v = r.ok && r.json && r.json[0];
+        if (!v) { fichesDemandees.delete(p.nom); return; }
+        if (v.profil_brut && !profilsBruts.has(p.nom)) profilsBruts.set(p.nom, v.profil_brut);
+        if (v.sections && !p.profil) p.profil = { sections: v.sections, lu: Date.now() };
+        if (currentProfile === p.nom) renderProfileView();
+        updateModalUI();
+    }
+
+    // Pastille « Base » de la modale : connecté ou non, envois en attente
+    function majBase() {
+        const el = document.getElementById('mwi-db');
+        if (!el) return;
+        const s = dbSession(), attente = gmGet(DB_FILE, []).length;
+        el.dataset.etat = !s ? 'off' : attente ? 'attente' : 'on';
+        el.title = !s ? 'Base : non connecté (clic pour se connecter)'
+            : `Base : connecté (${s.email})${attente ? ` · ${attente} envoi(s) en attente` : ''}`;
+        const info = document.getElementById('mwi-db-info');
+        if (info) info.textContent = s ? `Connecté : ${s.email}${attente ? ` · ${attente} en attente` : ''}` : '';
+        const panneau = document.getElementById('mwi-db-panel');
+        if (panneau) panneau.dataset.connecte = s ? '1' : '';
+        // Scan et vérification masqués hors compte rh
+        const modal = document.getElementById('mwi-tracker-modal');
+        if (modal) modal.dataset.role = estRh() ? 'rh' : 'lecteur';
+        if (info && s && s.role) info.textContent += ` · ${s.role === 'rh' ? 'RH' : s.role === 'lecteur' ? 'lecture seule' : 'non autorisé'}`;
     }
 
     // ---------------------------------------------------------------
@@ -249,6 +507,7 @@
     }
 
     window.mwiScanChat = async function() {
+        if (!estRh()) { setStatus('Scan réservé aux comptes RH.', 'warn'); return; }
         if (isProcessing || isScanning) {
             setStatus('Patiente, une opération est déjà en cours.', 'warn');
             return;
@@ -275,6 +534,7 @@
         let totalMessages = 0;
         let leaderboard = 0, guildCats = 0;
         const scanLog = [];
+        const debut = new Date().toISOString();
 
         try {
             for (const tab of tabs) {
@@ -315,6 +575,7 @@
         }
 
         log(`${countNew} nouveaux joueurs mis en file d'attente (${recrues.size} au total).`);
+        dbScan({ debut, onglets: tabs.map(tabLabel), totalMessages, countNew, leaderboard, guildCats, scanLog });
         console.table(scanLog.filter(e => e.resultat.startsWith('ignoré')));
         setStatus(`Scan terminé (${tabs.length} onglets de chat, ${leaderboard} classements, ${guildes.size} guildes) : ${countNew} nouveau(x) joueur(s).`,
             (leaderboard || !sourceActive(SOURCE_LEADERBOARD)) && (guildCats || !sourceActive(SOURCE_GUILDES)) ? 'ok' : 'warn');
@@ -532,9 +793,11 @@
     }
 
     // ---------------------------------------------------------------
-    // 2. Envoyer la commande de profil
+    // 2. Préremplir la commande de profil
     // ---------------------------------------------------------------
-    window.mwiSendProfileCommand = function(username) {
+    // Règle du jeu : le script écrit la commande mais ne l'envoie jamais, c'est le joueur qui appuie sur Entrée.
+    // Renvoie le champ du chat (null s'il est introuvable)
+    function preremplirProfil(username) {
         // Sélecteurs testés un par un, par ordre de priorité (une liste unique renverrait le premier élément du DOM)
         const selectors = [
             '[class*="Chat_"] input[type="text"]',
@@ -548,7 +811,7 @@
             chatInput = Array.from(document.querySelectorAll(sel)).find(el => !el.closest('#mwi-tracker-modal'));
             if (chatInput) break;
         }
-        if (!chatInput) return false;
+        if (!chatInput) return null;
 
         const command = `/profile ${username}`;
 
@@ -562,14 +825,35 @@
 
         chatInput.dispatchEvent(new Event('input', { bubbles: true }));
         chatInput.dispatchEvent(new Event('change', { bubbles: true }));
+        // Curseur en fin de commande : le joueur n'a plus qu'à appuyer sur Entrée
+        chatInput.focus();
+        try { chatInput.setSelectionRange(command.length, command.length); } catch (e) { }
 
-        setTimeout(() => {
-            chatInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-            chatInput.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-        }, 30);
+        return chatInput;
+    }
 
-        return true;
-    };
+    // Vide le champ du chat s'il contient encore la commande préremplie (vérification arrêtée ou annulée)
+    function viderPreremplissage(chatInput, username) {
+        if (!chatInput || chatInput.value !== `/profile ${username}`) return;
+        const proto = chatInput instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+        const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+        if (setter) setter.call(chatInput, ''); else chatInput.value = '';
+        chatInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    // Attend que le joueur envoie la commande (le jeu vide le champ, ou le profil s'affiche), puis lit le profil.
+    // continuer() faux = attente abandonnée (bouton Arrêter, fiche fermée) : renvoie null
+    async function attendreEnvoi(chatInput, username, continuer) {
+        for (;;) {
+            if (!continuer()) { viderPreremplissage(chatInput, username); return null; }
+            if (!chatInput.isConnected || chatInput.value === '' || findProfileModal(username).el) break;
+            await sleep(POLL_MS);
+        }
+        limiteurProfils.marquerEnvoi();
+        enAttente = null;
+        setStatus(`Lecture du profil de ${username}...`, '');
+        return analyzeProfile(username);
+    }
 
     // ---------------------------------------------------------------
     // 3. Interface & Styles
@@ -705,12 +989,22 @@
                 <img class="mwi-r-logo" src="${FABIO_ICON}" alt=""><span class="mwi-r-title">Fabio RH</span>
                 <span class="mwi-r-badge" id="mwi-badge" title="Joueurs sans guilde">0</span>
                 <div class="mwi-r-ctrl">
+                    <button class="mwi-r-icon mwi-r-db" id="mwi-db" data-etat="off" title="Base">☁</button>
                     <button class="mwi-r-icon" id="mwi-btn-min" title="Réduire">–</button>
                     <button class="mwi-r-icon" id="mwi-btn-max" title="Agrandir">□</button>
                     <button class="mwi-r-icon close" id="mwi-btn-close" title="Fermer">✕</button>
                 </div>
             </div>
             <div class="mwi-r-body">
+                <form class="mwi-r-dbpanel" id="mwi-db-panel" hidden>
+                    <span class="mwi-r-dbtitre">Base Fabio RH</span>
+                    <input type="email" class="mwi-r-select" id="mwi-db-email" placeholder="E-mail" autocomplete="username">
+                    <input type="password" class="mwi-r-select" id="mwi-db-pass" placeholder="Mot de passe" autocomplete="current-password">
+                    <button type="submit" class="mwi-r-btn primary" id="mwi-db-login">Connexion</button>
+                    <span class="mwi-r-dbinfo" id="mwi-db-info"></span>
+                    <button type="button" class="mwi-r-btn" id="mwi-db-sync" title="Renvoyer les scans et vérifications en attente">Envoyer</button>
+                    <button type="button" class="mwi-r-btn" id="mwi-db-logout">Déconnexion</button>
+                </form>
                 <div class="mwi-r-toolbar">
                     <select class="mwi-r-select" id="mwi-filter" title="Filtrer la liste">
                         <option value="free">Sans guilde</option>
@@ -748,7 +1042,7 @@
                 <div class="mwi-r-progress" id="mwi-progress"><div id="mwi-progress-bar"></div></div>
                 <div class="mwi-r-actions">
                     <button class="mwi-r-btn" id="mwi-btn-scan" title="Scanne le chat puis le leaderboard du jeu">1. Scanner</button>
-                    <button class="mwi-r-btn primary" id="mwi-btn-process">2. Vérifier Profils</button>
+                    <button class="mwi-r-btn primary" id="mwi-btn-process" title="Prépare /profile dans le chat pour chaque joueur : appuie sur Entrée pour chacun">2. Vérifier Profils</button>
                 </div>
                 <div class="mwi-r-foot">
                     <span id="mwi-status">En attente d'action...</span>
@@ -846,6 +1140,24 @@
             updateModalUI();
         });
 
+        const dbPanel = document.getElementById('mwi-db-panel');
+        document.getElementById('mwi-db').addEventListener('click', () => { dbPanel.hidden = !dbPanel.hidden; majBase(); });
+        dbPanel.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('mwi-db-email'), pass = document.getElementById('mwi-db-pass');
+            setStatus('Connexion à la base...', '');
+            const erreur = await dbConnexion(email.value.trim(), pass.value);
+            pass.value = '';
+            setStatus(erreur ? `Connexion refusée : ${erreur}` : 'Connecté à la base.', erreur ? 'err' : 'ok');
+            if (!erreur) dbPanel.hidden = true;
+            majBase();
+        });
+        document.getElementById('mwi-db-sync').addEventListener('click', dbVider);
+        document.getElementById('mwi-db-logout').addEventListener('click', dbDeconnexion);
+        majBase();
+        dbVider(); // envois restés en attente à la dernière session
+        dbCharger(); // joueurs et guildes enregistrés lors des sessions précédentes
+
         enableDrag(modal, document.getElementById('mwi-r-head'));
         enableResize(modal);
         updateModalUI();
@@ -854,8 +1166,11 @@
     let currentProfile = null;
     let currentSection = 0;
 
+    // Bouton Profile : prépare la commande dans le chat, le joueur l'envoie lui-même
     function openGameProfile(username) {
-        if (!window.mwiSendProfileCommand(username)) setStatus('Champ de chat introuvable.', 'err');
+        if (isProcessing) { setStatus('Vérification en cours : attends la fin ou arrête-la.', 'warn'); return; }
+        if (preremplirProfil(username)) setStatus(`Appuie sur Entrée dans le chat du jeu pour ouvrir le profil de ${username}.`, 'ok');
+        else setStatus('Champ de chat introuvable.', 'err');
     }
     // Recherche de joueur : suggestions parmi les joueurs connus (début du pseudo d'abord),
     // flèches pour naviguer, Entrée ou clic pour ouvrir la fiche. Un pseudo inconnu est ajouté à la liste.
@@ -922,32 +1237,43 @@
         document.getElementById('mwi-tracker-modal').dataset.view = 'profile';
         renderProfileView();
         const p = recrues.get(username);
-        if (p && !p.verifie) verifierUn(p);
+        if (p && !p.verifie && estRh()) verifierUn(p);
+        else if (p) dbFiche(p);
     }
 
-    // Vérification d'un seul joueur à l'ouverture de sa fiche (sauf si un scan ou une vérification tourne déjà)
+    // Vérification d'un seul joueur à l'ouverture de sa fiche (sauf si un scan ou une vérification tourne déjà) :
+    // la commande est préremplie, le joueur l'envoie ; quitter la fiche annule l'attente
     async function verifierUn(p) {
-        if (isProcessing || isScanning) return;
+        if (isProcessing || isScanning || !estRh()) return;
         isProcessing = true;
         const btn = document.getElementById('mwi-btn-process'), scanBtn = document.getElementById('mwi-btn-scan');
         btn.disabled = scanBtn.disabled = true;
         const spamWatch = startSpamWatch();
+        let chatInput = null;
         try {
             const o = await limiteurProfils.executer(() => {
-                setStatus(`Vérification de ${p.nom}...`, '');
-                return window.mwiSendProfileCommand(p.nom);
-            }, () => analyzeProfile(p.nom), p.nom, ok => ok);
+                chatInput = preremplirProfil(p.nom);
+                if (!chatInput) return false;
+                enAttente = p.nom;
+                setStatus(`Appuie sur Entrée dans le chat du jeu pour vérifier ${p.nom}.`, '');
+                if (currentProfile === p.nom) renderProfileView();
+            }, () => attendreEnvoi(chatInput, p.nom, () => currentProfile === p.nom), p.nom, ok => ok !== false);
             if (o.impossible) setStatus('Champ de chat introuvable.', 'err');
-            else if (!o.res) { p.verifie = true; p.echec = true; setStatus(`Profil de ${p.nom} illisible.`, 'warn'); }
+            else if (o.res === null) setStatus(`Vérification de ${p.nom} annulée.`, '');
+            else if (!o.res) { p.verifie = true; p.echec = true; dbVerification(p); setStatus(`Profil de ${p.nom} illisible.`, 'warn'); }
             else setStatus(`Profil de ${p.nom} vérifié.`, 'ok');
         } catch (e) {
             log('Erreur pendant la vérification :', e);
         } finally {
             spamWatch.disconnect();
             isProcessing = false;
+            enAttente = null;
             btn.disabled = scanBtn.disabled = false;
             updateModalUI();
         }
+        // Fiche d'un autre joueur ouverte pendant l'attente : on prépare la sienne
+        const autre = currentProfile && recrues.get(currentProfile);
+        if (autre && autre !== p && !autre.verifie) verifierUn(autre);
     }
     function closeProfileView() {
         currentProfile = null;
@@ -1153,7 +1479,9 @@
         if (currentSection >= sections.length) currentSection = 0;
         const hint = p.profil || brut ? '' : `<p class="mwi-r-pempty">${p.verifie
             ? 'Détails non récupérés pour ce joueur : relance la vérification.'
+            : enAttente === p.nom ? 'Commande /profile prête dans le chat du jeu : appuie sur Entrée pour récupérer toutes les infos.'
             : isProcessing ? 'Vérification du profil en cours...'
+            : !estRh() ? 'Profil pas encore vérifié par un RH.'
             : 'Profil pas encore vérifié : clique sur « 2. Vérifier Profils » pour récupérer toutes les infos.'}</p>`;
 
         // Toutes les sections sont dans la page : le CSS n'affiche que l'onglet actif en petite fenêtre,
@@ -1717,6 +2045,7 @@
         } catch (e) {
             log('Lecture des onglets du profil impossible :', e);
         }
+        dbVerification(playerData);
 
         const closeBtn = found.el.querySelector('button[aria-label="Close"], [class*="close" i], svg[class*="close" i]');
         if (closeBtn) {
@@ -1756,9 +2085,12 @@
     // executer(action, attendre, prefix, reussi) : action() envoie la commande (false = impossible),
     // attendre() renvoie le résultat ; on retente tant que le jeu signale un spam et que reussi(res) est faux.
     // Renvoie { res, spam: true si le jeu a refusé jusqu'au bout, impossible: true si action() a échoué }
-    function creerLimiteur(nom) {
-        let intervalle = INTERVALLE_MIN_MS, dernier = 0;
+    // min : délai de départ entre deux commandes (0 = aucun tant que le jeu ne signale pas de spam)
+    function creerLimiteur(nom, min = INTERVALLE_MIN_MS) {
+        let intervalle = min, dernier = 0;
         return {
+            // L'envoi part plus tard que action() quand c'est le joueur qui valide : le délai compte depuis l'envoi réel
+            marquerEnvoi() { dernier = Date.now(); },
             async executer(action, attendre, prefix, reussi = () => false) {
                 for (let reprise = 0; ; reprise++) {
                     const wait = dernier + intervalle - Date.now();
@@ -1769,7 +2101,7 @@
                     const res = await attendre();
                     if (spamDetectedAt < sentAt - 300) return { res, spam: false };
                     // Le jeu trouve qu'on va trop vite : on ralentit durablement
-                    intervalle = Math.min(intervalle * 2, INTERVALLE_MAX_MS);
+                    intervalle = Math.min(Math.max(intervalle * 2, INTERVALLE_MIN_MS), INTERVALLE_MAX_MS);
                     log(`Intervalle entre ${nom} porté à ${intervalle} ms.`);
                     if (reussi(res)) return { res, spam: false };
                     if (reprise >= MAX_REPRISES_ANTISPAM) return { res, spam: true };
@@ -1778,7 +2110,9 @@
             }
         };
     }
-    const limiteurProfils = creerLimiteur('profils');
+    // C'est le joueur qui envoie chaque /profile : le suivant est prérempli dès que le profil est lu,
+    // le délai anti-spam ne s'applique qu'après un avertissement du jeu
+    const limiteurProfils = creerLimiteur('profils', 0);
 
     async function pauseAntispam(prefix) {
         for (let left = PAUSE_ANTISPAM_MS; left > 0 && !arretDemande; left -= 1000) {
@@ -1788,6 +2122,7 @@
     }
 
     async function processUnverifiedProfiles() {
+        if (!estRh()) { setStatus('Vérification réservée aux comptes RH.', 'warn'); return; }
         // Pendant la vérification, le même bouton sert à l'arrêter (après le profil en cours)
         if (isProcessing) {
             arretDemande = true;
@@ -1823,7 +2158,7 @@
         progress.style.display = 'block';
         bar.style.width = '0%';
 
-        let index = 0;
+        let index = 0, introuvable = false;
         const spamWatch = startSpamWatch();
         try {
             for (const data of queue) {
@@ -1832,20 +2167,27 @@
                 index++;
                 const prefix = `${index}/${toVerify}`;
 
+                // Le script prépare la commande, le joueur appuie sur Entrée dans le chat pour chaque profil
+                let chatInput = null;
                 const o = await limiteurProfils.executer(() => {
-                    setStatus(`Vérification ${prefix} : ${username}...`, '');
-                    return window.mwiSendProfileCommand(username);
-                }, () => analyzeProfile(username), prefix, ok => ok);
-                if (o.arrete) { index--; break; } // arrêté pendant l'attente : ce profil reste en file
+                    chatInput = preremplirProfil(username);
+                    if (!chatInput) return false;
+                    enAttente = username;
+                    setStatus(`${prefix} : appuie sur Entrée dans le chat du jeu pour vérifier ${username}.`, '');
+                }, () => attendreEnvoi(chatInput, username, () => !arretDemande), prefix, ok => ok !== false);
+                if (o.impossible) { index--; introuvable = true; break; }
+                if (o.arrete || o.res === null) { index--; break; } // arrêté pendant l'attente : ce profil reste en file
 
                 if (!o.res) {
                     data.verifie = true;
                     data.echec = true;
+                    dbVerification(data);
                 }
                 bar.style.width = `${Math.round((index / toVerify) * 100)}%`;
                 updateModalUI();
             }
-            setStatus(arretDemande ? `Vérification arrêtée (${index}/${toVerify} traités).` : 'Vérification terminée.', arretDemande ? 'warn' : 'ok');
+            if (introuvable) setStatus('Champ de chat introuvable.', 'err');
+            else setStatus(arretDemande ? `Vérification arrêtée (${index}/${toVerify} traités).` : 'Vérification terminée.', arretDemande ? 'warn' : 'ok');
         } catch (e) {
             log('Erreur pendant la vérification :', e);
             setStatus('Erreur pendant la vérification (voir console).', 'err');
@@ -1853,8 +2195,9 @@
             spamWatch.disconnect();
             isProcessing = false;
             arretDemande = false;
+            enAttente = null;
             btn.disabled = false;
-            btn.title = '';
+            btn.title = 'Prépare /profile dans le chat pour chaque joueur : appuie sur Entrée pour chacun';
             scanBtn.disabled = false;
             btn.textContent = '2. Vérifier Profils';
             progress.style.display = 'none';

@@ -76,6 +76,23 @@
 .mwi-r-body { display: flex; flex-direction: column; gap: 10px; padding: 10px; flex: 1; min-height: 0; }
 
 .mwi-r-toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.mwi-r-db[data-etat="off"] { color: var(--r-muted); }
+.mwi-r-db[data-etat="on"] { color: var(--r-ok); border-color: var(--r-ok); }
+.mwi-r-db[data-etat="attente"] { color: var(--r-warn); border-color: var(--r-warn); }
+.mwi-r-dbpanel {
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px;
+    background: var(--r-panel); border: 1px solid var(--r-accent); border-radius: 8px;
+}
+.mwi-r-dbpanel[hidden] { display: none; }
+.mwi-r-dbtitre { flex-basis: 100%; font-size: 11px; font-weight: 700; color: var(--r-gold); }
+.mwi-r-dbinfo { flex: 1; font-size: 12px; color: var(--r-ok); }
+.mwi-r-dbpanel[data-connecte="1"] input, .mwi-r-dbpanel[data-connecte="1"] #mwi-db-login,
+.mwi-r-dbpanel:not([data-connecte="1"]) #mwi-db-sync, .mwi-r-dbpanel:not([data-connecte="1"]) #mwi-db-logout { display: none; }
+/* Lecture seule (lecteur ou non connecté) : ni canaux, ni scan, ni vérification */
+#mwi-tracker-modal[data-role="lecteur"] .mwi-r-chans-head,
+#mwi-tracker-modal[data-role="lecteur"] .mwi-r-chans,
+#mwi-tracker-modal[data-role="lecteur"] .mwi-r-progress,
+#mwi-tracker-modal[data-role="lecteur"] .mwi-r-actions { display: none; }
 
 .mwi-r-chans-head { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--r-muted); }
 .mwi-r-chans { display: flex; flex-wrap: wrap; gap: 4px; }
