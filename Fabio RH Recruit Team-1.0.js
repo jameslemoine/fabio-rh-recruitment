@@ -1882,7 +1882,7 @@
                     ${production ? `<dt>🏭 Production</dt><dd>${esc(pretty(production.skill))} ${equipementHtml(production.eq)}</dd>` : ''}
                 </dl>`;
             return `<li class="mwi-r-card ${cat}" data-player="${esc(p.nom)}" title="Voir la fiche du joueur">
-                <div class="mwi-r-name"><span class="mwi-r-who">${voyant(p)}<span class="mwi-r-player" style="${nameStyle}">${esc(p.nom)}</span>${p.ironcow ? '<span class="mwi-r-iron" title="Ironcow">🐄</span>' : ''}</span><span class="mwi-r-right">${skillChip(p)}<span class="mwi-r-tag" title="${tag}">${tag}</span></span></div>
+                <div class="mwi-r-name"><span class="mwi-r-who"><span class="mwi-r-player" style="${nameStyle}">${esc(p.nom)}</span>${p.ironcow ? '<span class="mwi-r-iron" title="Ironcow">🐄</span>' : ''}</span><span class="mwi-r-right">${skillChip(p)}<span class="mwi-r-tag" title="${tag}">${tag}</span></span></div>
                 ${stats}
                 ${details}
             </li>`;
