@@ -1,7 +1,7 @@
 // Fichier généré par tools/build-console.js - ne pas modifier à la main.
 // Coller tout le contenu dans la console du jeu (F12) pour tester sans Tampermonkey.
-// Version : d25449f - Métiers : outil celestial, tenue et charme pris en compte dans le filtre et le tri
-console.log('[Fabio RH] console-test :', "d25449f - Métiers : outil celestial, tenue et charme pris en compte dans le filtre et le tri");
+// Version : 433a861 - Seuil de niveau des skills porté à 120
+console.log('[Fabio RH] console-test :', "433a861 - Seuil de niveau des skills porté à 120");
 (function() {
     'use strict';
 
@@ -31,7 +31,7 @@ console.log('[Fabio RH] console-test :', "d25449f - Métiers : outil celestial, 
     let currentFilter = 'free';
     let currentMode = 'all'; // 'all' | 'standard' | 'ironcow'
     let currentSkill = ''; // '' (tous les joueurs) | 'combat_level' | un skill : joueurs à NIVEAU_MIN_SKILL ou plus
-    const NIVEAU_MIN_SKILL = 110;
+    const NIVEAU_MIN_SKILL = 120;
 
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     const log = (...a) => console.log('[Radar]', ...a);
