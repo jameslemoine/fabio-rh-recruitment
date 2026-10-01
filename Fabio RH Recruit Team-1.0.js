@@ -48,6 +48,9 @@
     let currentMode = 'all'; // 'all' | 'standard' | 'ironcow'
     let currentSkill = ''; // '' (tous les joueurs) | 'combat_level' | un skill : joueurs à NIVEAU_MIN_SKILL ou plus
     const NIVEAU_MIN_SKILL = 120;
+    // Un joueur vérifié il y a plus longtemps repasse « à revérifier » (dans la file de « 2. Vérifier Profils »)
+    const DELAI_REVERIF_JOURS = 7;
+    const joursDepuis = (t) => Math.floor((Date.now() - t) / 86400000);
 
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     const log = (...a) => console.log('[Radar]', ...a);
@@ -205,6 +208,8 @@
 
     // Une vérification : résultat lu + profil brut du WebSocket + sections lues à l'écran
     function dbVerification(p) {
+        p.perime = false;
+        p.derniereVerif = Date.now();
         const entier = (v) => /^\d+$/.test(String(v)) ? +v : null;
         const brut = profilsBruts.get(p.nom) || null;
         const c = brut && brut.sharableCharacter;
@@ -268,7 +273,7 @@
             majBase();
             if (!ligne || !ligne.actif) { setStatus('Compte connecté mais pas encore autorisé : demande un accès.', 'warn'); return; }
         }
-        const joueurs = await dbLire('/rest/v1/joueurs?select=nom,ironcow,couleur,statut,a_guilde,guilde,rang,total_level,combat_level,age,niveaux,equipement&order=nom', jeton);
+        const joueurs = await dbLire('/rest/v1/joueurs?select=nom,ironcow,couleur,statut,a_guilde,guilde,rang,total_level,combat_level,age,niveaux,equipement,derniere_verif&order=nom', jeton);
         if (!joueurs) { log('Base : lecture des joueurs impossible.'); return; }
         let ajoutes = 0;
         for (const j of joueurs) {
@@ -280,6 +285,8 @@
             if (!p.equipement && j.equipement) p.equipement = j.equipement;
             // Ce qui a été vérifié pendant cette session fait foi
             if (p.verifie || j.statut === 'pending') continue;
+            const verif = Date.parse(j.derniere_verif || '');
+            if (Number.isFinite(verif)) p.derniereVerif = verif;
             p.verifie = true;
             p.echec = j.statut === 'fail';
             p.hasGuild = !!j.a_guilde;
@@ -287,6 +294,9 @@
             p.rang = j.rang || '';
             p.stats = { total: j.total_level ?? '?', combat: j.combat_level ?? '?', age: j.age || '?' };
             p.ironcow = !!j.ironcow;
+            // Vérifié il y a trop longtemps : on garde ses infos mais il repart dans la file à vérifier
+            p.perime = Number.isFinite(verif) && joursDepuis(verif) >= DELAI_REVERIF_JOURS;
+            if (p.perime) p.verifie = false;
         }
 
         // Dernier relevé de chaque guilde dans chaque classement (chaque scan n'en lit qu'un) ;
@@ -305,7 +315,7 @@
     // Fiche d'un joueur vérifié lors d'une session précédente : profil brut et onglets de sa dernière vérification réussie
     const fichesDemandees = new Set();
     async function dbFiche(p) {
-        if (!p.verifie || p.echec || profilsBruts.has(p.nom) || fichesDemandees.has(p.nom)) return;
+        if ((!p.verifie && !p.perime) || p.echec || profilsBruts.has(p.nom) || fichesDemandees.has(p.nom)) return;
         fichesDemandees.add(p.nom);
         const jeton = await dbJeton();
         if (!jeton) { fichesDemandees.delete(p.nom); return; }
@@ -1221,7 +1231,7 @@
             const valide = /^[a-zA-Z0-9_-]{2,30}$/.test(input.value.trim());
             list.innerHTML = choix.map((p, i) => {
                 const cat = playerCategory(p);
-                const tag = { free: 'Sans guilde', guild: p.guilde, fail: 'Illisible', pending: 'En attente' }[cat];
+                const tag = { free: 'Sans guilde', guild: p.guilde, fail: 'Illisible', pending: p.perime ? 'À revérifier' : 'En attente' }[cat];
                 const debut = p.nom.toLowerCase().indexOf(q);
                 const nom = esc(p.nom.slice(0, debut)) + '<b>' + esc(p.nom.slice(debut, debut + q.length)) + '</b>' + esc(p.nom.slice(debut + q.length));
                 return `<li class="${i === actif ? 'actif' : ''}" data-i="${i}" role="option">${voyant(p)}<span class="nom">${nom}</span>${p.ironcow ? ' 🐄' : ''}<span class="mwi-r-sugg-tag ${cat}">${esc(tag)}</span></li>`;
@@ -1270,7 +1280,7 @@
         renderProfileView();
         const p = recrues.get(username);
         if (p && !p.verifie && estRh()) verifierUn(p);
-        else if (p) dbFiche(p);
+        if (p && (p.verifie || p.perime)) dbFiche(p);
     }
 
     // Vérification d'un seul joueur à l'ouverture de sa fiche (sauf si un scan ou une vérification tourne déjà) :
@@ -1550,7 +1560,7 @@
         const p = currentProfile && recrues.get(currentProfile);
         if (!view || !p) return;
         const cat = playerCategory(p);
-        const statut = { free: 'Sans guilde', guild: 'En guilde', fail: 'Profil illisible', pending: 'En attente' }[cat];
+        const statut = { free: 'Sans guilde', guild: 'En guilde', fail: 'Profil illisible', pending: p.perime ? 'À revérifier' : 'En attente' }[cat];
         const nameStyle = p.color ? `color: ${p.color};` : '';
         const brut = profilsBruts.get(p.nom);
 
@@ -1558,6 +1568,8 @@
                 <dt>Statut</dt><dd class="mwi-r-pstat ${cat}">${statut}</dd>
                 <dt>Mode</dt><dd>${p.ironcow ? '🐄 Ironcow' : 'Standard'}</dd>
                 ${cat === 'guild' ? `<dt>Guilde</dt><dd>${esc(p.guilde)}</dd><dt>Rang</dt><dd>${esc(p.rang)}</dd>` : ''}
+                ${p.perime && p.guilde ? `<dt>Guilde (ancienne)</dt><dd>${esc(p.rang)} of ${esc(p.guilde)}</dd>` : ''}
+                ${p.derniereVerif ? `<dt>Vérifié</dt><dd>${dateVerif(p)}</dd>` : ''}
                 ${p.profil || brut ? '' : statsDl(p)}
             </dl>${guildCompareHtml((brut && brut.guildName) || (cat === 'guild' ? p.guilde : ''))}`;
         const dom = (p.profil && p.profil.sections) || [];
@@ -1723,6 +1735,12 @@
         }).join('')}</div>`;
     }
 
+    // « aujourd'hui », « il y a 3 j » ; au-delà du délai, signalé à revérifier
+    function dateVerif(p) {
+        const j = joursDepuis(p.derniereVerif);
+        return (j < 1 ? "aujourd'hui" : `il y a ${j} j`) + (p.perime ? ' (à revérifier)' : '');
+    }
+
     // Stats principales en lignes <dt>/<dd> (fiche joueur et grandes cases)
     const statsDl = (p) => `<dt>🛡️ Total</dt><dd>${esc(p.stats.total)}</dd><dt>⚔️ Combat</dt><dd>${esc(p.stats.combat)}</dd><dt>⏳ Age</dt><dd>${esc(p.stats.age)}</dd>`;
 
@@ -1856,11 +1874,12 @@
 
         list.innerHTML = players.map(p => {
             const cat = playerCategory(p);
-            const tag = { free: 'Sans guilde', guild: `${esc(p.rang)} of ${esc(p.guilde)}`, fail: 'Profil illisible', pending: 'En attente' }[cat];
+            const tag = { free: 'Sans guilde', guild: `${esc(p.rang)} of ${esc(p.guilde)}`, fail: 'Profil illisible',
+                pending: p.perime ? `À revérifier · ${joursDepuis(p.derniereVerif)} j` : 'En attente' }[cat];
 
             const nameStyle = p.color ? `color: ${p.color}; text-shadow: 0px 1px 2px rgba(0,0,0,0.5);` : 'color: var(--r-text);';
 
-            const stats = (cat === 'free' || cat === 'guild') ? `
+            const stats = (cat === 'free' || cat === 'guild' || (p.perime && !p.echec)) ? `
                 <div class="mwi-r-stats">
                     <span>🛡️ Total <b>${esc(p.stats.total)}</b></span>
                     <span>⚔️ Combat <b>${esc(p.stats.combat)}</b></span>
