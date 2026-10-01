@@ -375,7 +375,9 @@
 .mwi-r-progress > div { height: 100%; width: 0; background: var(--r-accent); transition: width .2s; }
 
 .mwi-r-actions { display: flex; gap: 8px; }
-.mwi-r-actions .mwi-r-btn { flex: 1; }
+.mwi-r-actions { flex-wrap: wrap; }
+.mwi-r-actions .mwi-r-btn { flex: 1 1 0; white-space: nowrap; }
+.mwi-r-btn.actif { color: #fff; background: var(--r-gold); border-color: var(--r-gold); color: var(--r-bg); }
 
 .mwi-r-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 11px; color: var(--r-muted); }
 #mwi-status.ok { color: var(--r-ok); }

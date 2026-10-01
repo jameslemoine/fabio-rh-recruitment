@@ -233,7 +233,7 @@
         dbEnvoyer('scan', {
             debut,
             onglets,
-            sources: ['chat', ...classements],
+            sources: [...(onglets.length ? ['chat'] : []), ...classements],
             mode: currentMode,
             nb_messages: totalMessages,
             nb_nouveaux: countNew,
@@ -365,10 +365,6 @@
     const tabKey = (tab) => tab.getAttribute('data-mention-channel') || tabLabel(tab);
     const isIronTab = (tab) => /ironcow/i.test(tabKey(tab) + ' ' + tabLabel(tab));
 
-    // Sources hors chat, cochables comme les canaux (clés mémorisées dans excludedChannels)
-    const SOURCE_LEADERBOARD = 'fabio:leaderboard';
-    const sourceActive = (key) => !(loadUI().excludedChannels || []).includes(key);
-
     // On mémorise les canaux exclus (et non les inclus) pour qu'un nouveau canal soit scanné par défaut
     function getSelectedTabs() {
         const excluded = loadUI().excludedChannels || [];
@@ -386,9 +382,7 @@
             </label>`;
         box.innerHTML = (tabs.length
             ? tabs.map(t => chan(tabKey(t), `${isIronTab(t) ? '🐄 ' : ''}${esc(tabLabel(t))}`, isIronTab(t) ? ' iron' : '')).join('')
-            : '<span class="mwi-r-chan-empty">Aucun canal détecté (chat pas encore chargé ?)</span>')
-            // Sources hors chat, parcourues après les canaux
-            + chan(SOURCE_LEADERBOARD, '🏆 Leaderboard visité');
+            : '<span class="mwi-r-chan-empty">Aucun canal détecté (chat pas encore chargé ?)</span>');
         box.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.addEventListener('change', () => {
             const keys = Array.from(box.querySelectorAll('input[type="checkbox"]'))
                 .filter(c => !c.checked).map(c => c.dataset.key);
@@ -502,13 +496,8 @@
         return { countNew, total: messages.length };
     }
 
-    // Scan continu : « Scanner » lit une fois tous les onglets de chat, puis surveille la page sans plus rien cliquer :
-    // nouveaux messages du chat et chaque classement du leaderboard que le joueur ouvre lui-même.
-    // « Arrêter le scan » envoie tout à la base en un seul scan.
-    let scanContinu = null;
-
+    // « Scanner le chat » : lecture unique de chaque onglet de chat coché, envoyée à la base comme un scan
     window.mwiScanChat = async function() {
-        if (scanContinu) { terminerScan(scanContinu); return; }
         if (!estRh()) { setStatus('Scan réservé aux comptes RH.', 'warn'); return; }
         if (isProcessing || isScanning) {
             setStatus('Patiente, une opération est déjà en cours.', 'warn');
@@ -518,19 +507,21 @@
         renderChannels();
         const allTabs = getChatTabs();
         const tabs = getSelectedTabs();
-        const scanBtn = document.getElementById('mwi-btn-scan');
-        const processBtn = document.getElementById('mwi-btn-process');
+        if (allTabs.length === 0) {
+            setStatus('Aucun onglet de chat trouvé.', 'warn');
+            return;
+        }
 
         isScanning = true;
-        if (scanBtn) { scanBtn.disabled = true; scanBtn.textContent = 'Lecture du chat...'; }
-        if (processBtn) processBtn.disabled = true;
+        majBoutonsScan();
+        const scanBtn = document.getElementById('mwi-btn-scan');
+        if (scanBtn) scanBtn.textContent = 'Scan en cours...';
 
-        const sc = {
-            debut: new Date().toISOString(), onglets: tabs.map(tabLabel), scanLog: [], dejaLus: new WeakSet(),
-            countNew: 0, totalMessages: 0, avecLb: sourceActive(SOURCE_LEADERBOARD),
-            signature: '', classements: [], guildesLues: new Map(), obs: null, minuterie: 0
-        };
         const activeTab = allTabs.find(t => t.getAttribute('aria-selected') === 'true') || tabs[0];
+        let countNew = 0, totalMessages = 0;
+        const scanLog = [], dejaLus = new WeakSet();
+        const debut = new Date().toISOString();
+
         try {
             for (const tab of tabs) {
                 const label = tabLabel(tab);
@@ -539,18 +530,54 @@
                 tab.click();
                 await sleep(TAB_SWITCH_WAIT_MS);
 
-                const before = sc.scanLog.length;
-                const result = scanVisibleMessages(sc.scanLog, sc.dejaLus);
-                for (let i = before; i < sc.scanLog.length; i++) sc.scanLog[i].onglet = label;
+                const before = scanLog.length;
+                const result = scanVisibleMessages(scanLog, dejaLus);
+                for (let i = before; i < scanLog.length; i++) scanLog[i].onglet = label;
 
-                sc.countNew += result.countNew;
-                sc.totalMessages += result.total;
+                countNew += result.countNew;
+                totalMessages += result.total;
             }
             if (activeTab) activeTab.click();
             await sleep(50);
-        } catch (e) {
-            log('Erreur pendant la lecture du chat :', e);
+        } finally {
+            isScanning = false;
+            if (scanBtn) scanBtn.textContent = '1. Scanner le chat';
+            majBoutonsScan();
         }
+
+        log(`${countNew} nouveaux joueurs mis en file d'attente (${recrues.size} au total).`);
+        dbScan({ debut, onglets: tabs.map(tabLabel), totalMessages, countNew, classements: [], guildesLues: [], scanLog });
+        console.table(scanLog.filter(e => e.resultat.startsWith('ignoré')));
+        setStatus(`Scan du chat terminé (${tabs.length} onglets) : ${countNew} nouveau(x) joueur(s).`, 'ok');
+        updateModalUI();
+    };
+
+    // Boutons de scan et de vérification selon l'opération en cours
+    function majBoutonsScan() {
+        const chat = document.getElementById('mwi-btn-scan'), lb = document.getElementById('mwi-btn-lb'),
+            verif = document.getElementById('mwi-btn-process');
+        if (chat) chat.disabled = isScanning || isProcessing;
+        if (lb) {
+            lb.disabled = !scanLb && (isScanning || isProcessing);
+            lb.textContent = scanLb ? '■ Arrêter le leaderboard' : '🏆 Leaderboard';
+            lb.classList.toggle('actif', !!scanLb);
+        }
+        if (verif && !isProcessing) verif.disabled = isScanning;
+    }
+
+    // « Leaderboard » : scan continu sans aucun clic. Le joueur ouvre lui-même chaque classement (skills ou guildes),
+    // le script lit celui qui est affiché dès qu'il change. « Arrêter » envoie tout à la base en un seul scan.
+    let scanLb = null;
+
+    function mwiScanLeaderboard() {
+        if (scanLb) { terminerScanLb(scanLb); return; }
+        if (!estRh()) { setStatus('Scan réservé aux comptes RH.', 'warn'); return; }
+        if (isProcessing || isScanning) {
+            setStatus('Patiente, une opération est déjà en cours.', 'warn');
+            return;
+        }
+        const sc = { debut: new Date().toISOString(), scanLog: [], countNew: 0, signature: '', classements: [],
+            guildesLues: new Map(), obs: null, minuterie: 0 };
 
         // Surveillance de la page (hors modale) : au plus une relecture toutes les 400 ms. Pas de délai relancé à
         // chaque modification : la page du jeu change sans arrêt (barres de progression) et la lecture n'aurait jamais lieu
@@ -561,18 +588,17 @@
                 return el && !el.closest('#mwi-tracker-modal');
             });
             if (!dehors) return;
-            sc.minuterie = setTimeout(() => { sc.minuterie = 0; lectureContinue(sc); }, 400);
+            sc.minuterie = setTimeout(() => { sc.minuterie = 0; lectureLb(sc); }, 400);
         });
         sc.obs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'aria-selected'] });
         // Page fermée pendant le scan : ce qui a été lu part dans la file d'envoi (envoyée au prochain chargement)
-        sc.surFermeture = () => terminerScan(sc);
+        sc.surFermeture = () => terminerScanLb(sc);
         window.addEventListener('pagehide', sc.surFermeture);
-        scanContinu = sc;
-
-        if (scanBtn) { scanBtn.disabled = false; scanBtn.textContent = '■ Arrêter le scan'; scanBtn.title = 'Arrête le scan et enregistre tout ce qui a été lu'; }
-        lectureContinue(sc);
-        updateModalUI();
-    };
+        scanLb = sc;
+        isScanning = true;
+        majBoutonsScan();
+        lectureLb(sc);
+    }
 
     // Signature du classement affiché : on ne relit le leaderboard que lorsqu'elle change
     function signatureLeaderboard() {
@@ -587,58 +613,44 @@
             t ? t.rows.length + ':' + t.rows.slice(0, 5).map(r => r.join(',')).join('|') : ''].join('#');
     }
 
-    function lectureContinue(sc) {
-        if (scanContinu && scanContinu !== sc) return;
-        const before = sc.scanLog.length;
-        const r = scanVisibleMessages(sc.scanLog, sc.dejaLus);
-        for (let i = before; i < sc.scanLog.length; i++) sc.scanLog[i].onglet = 'en direct';
-        sc.countNew += r.countNew;
-        sc.totalMessages += r.total;
-
-        let classement = false;
-        if (sc.avecLb) {
-            const sig = signatureLeaderboard();
-            if (sig && sig !== sc.signature) {
-                sc.signature = sig;
-                try {
-                    const lb = lireLeaderboardAffiche(sc.scanLog);
-                    if (lb.type) {
-                        classement = true;
-                        sc.countNew += lb.countNew;
-                        const nom = `${lb.type === 'guildes' ? 'guildes' : 'leaderboard'} : ${lb.classement}`;
-                        if (!sc.classements.includes(nom)) sc.classements.push(nom);
-                        lb.guildesLues.forEach(g => sc.guildesLues.set(g.guilde + '\n' + g.classement, g));
-                    }
-                } catch (e) {
-                    log('Erreur pendant la lecture du leaderboard :', e);
+    function lectureLb(sc) {
+        if (scanLb && scanLb !== sc) return;
+        const sig = signatureLeaderboard();
+        if (sig && sig !== sc.signature) {
+            sc.signature = sig;
+            try {
+                const lb = lireLeaderboardAffiche(sc.scanLog);
+                if (lb.type) {
+                    sc.countNew += lb.countNew;
+                    const nom = `${lb.type === 'guildes' ? 'guildes' : 'leaderboard'} : ${lb.classement}`;
+                    if (!sc.classements.includes(nom)) sc.classements.push(nom);
+                    lb.guildesLues.forEach(g => sc.guildesLues.set(g.guilde + '\n' + g.classement, g));
+                    updateModalUI();
+                    if (document.getElementById('mwi-tracker-modal').dataset.view === 'guilds') renderGuildView();
                 }
+            } catch (e) {
+                log('Erreur pendant la lecture du leaderboard :', e);
             }
         }
-        if (r.countNew || classement) {
-            updateModalUI();
-            if (document.getElementById('mwi-tracker-modal').dataset.view === 'guilds') renderGuildView();
-        }
-        if (scanContinu === sc) setStatus(`Scan en cours : ${sc.countNew} nouveau(x) joueur(s), ${sc.classements.length} classement(s) lu(s). `
-            + (sc.avecLb ? 'Ouvre les classements du leaderboard, puis « Arrêter le scan ».' : '« Arrêter le scan » pour enregistrer.'), 'ok');
+        if (scanLb === sc) setStatus(`Leaderboard : ${sc.classements.length} classement(s) lu(s), ${sc.countNew} nouveau(x) joueur(s). `
+            + 'Ouvre les classements un par un, puis « Arrêter le leaderboard ».', 'ok');
     }
 
-    function terminerScan(sc) {
-        if (!sc || scanContinu !== sc) return;
-        lectureContinue(sc); // dernière lecture de la page
-        scanContinu = null;
+    function terminerScanLb(sc) {
+        if (!sc || scanLb !== sc) return;
+        lectureLb(sc); // dernière lecture de la page
+        scanLb = null;
         sc.obs.disconnect();
         clearTimeout(sc.minuterie);
         window.removeEventListener('pagehide', sc.surFermeture);
         isScanning = false;
-        const scanBtn = document.getElementById('mwi-btn-scan'), processBtn = document.getElementById('mwi-btn-process');
-        if (scanBtn) { scanBtn.textContent = '1. Scanner'; scanBtn.title = 'Lit le chat puis surveille la page : ouvre les classements du leaderboard, puis arrête le scan'; }
-        if (processBtn) processBtn.disabled = false;
+        majBoutonsScan();
 
-        log(`${sc.countNew} nouveaux joueurs mis en file d'attente (${recrues.size} au total), ${sc.classements.length} classements lus.`);
-        dbScan({ debut: sc.debut, onglets: sc.onglets, totalMessages: sc.totalMessages, countNew: sc.countNew,
+        log(`Leaderboard : ${sc.classements.length} classements lus, ${sc.countNew} nouveaux joueurs.`, sc.classements);
+        if (sc.classements.length) dbScan({ debut: sc.debut, onglets: [], totalMessages: 0, countNew: sc.countNew,
             classements: sc.classements, guildesLues: Array.from(sc.guildesLues.values()), scanLog: sc.scanLog });
-        console.table(sc.scanLog.filter(e => e.resultat.startsWith('ignoré')));
-        setStatus(`Scan terminé : ${sc.countNew} nouveau(x) joueur(s), ${sc.classements.length} classement(s) lu(s), ${sc.onglets.length} onglets de chat.`, 'ok');
+        setStatus(`Leaderboard terminé : ${sc.classements.length} classement(s) lu(s), ${sc.countNew} nouveau(x) joueur(s).`,
+            sc.classements.length ? 'ok' : 'warn');
         updateModalUI();
         if (document.getElementById('mwi-tracker-modal').dataset.view === 'guilds') renderGuildView();
     }
@@ -1030,7 +1042,8 @@
                 <div class="mwi-r-gview" id="mwi-guild-view"></div>
                 <div class="mwi-r-progress" id="mwi-progress"><div id="mwi-progress-bar"></div></div>
                 <div class="mwi-r-actions">
-                    <button class="mwi-r-btn" id="mwi-btn-scan" title="Lit le chat puis surveille la page : ouvre les classements du leaderboard, puis arrête le scan">1. Scanner</button>
+                    <button class="mwi-r-btn" id="mwi-btn-scan" title="Lit une fois chaque onglet de chat coché">1. Scanner le chat</button>
+                    <button class="mwi-r-btn" id="mwi-btn-lb" title="Surveille le leaderboard : ouvre les classements un par un, puis arrête">🏆 Leaderboard</button>
                     <button class="mwi-r-btn primary" id="mwi-btn-process" title="Prépare /profile dans le chat pour chaque joueur : appuie sur Entrée pour chacun">2. Vérifier Profils</button>
                 </div>
                 <div class="mwi-r-foot">
@@ -1060,6 +1073,7 @@
         setVisible(saved.visible !== false);
 
         document.getElementById('mwi-btn-scan').addEventListener('click', window.mwiScanChat);
+        document.getElementById('mwi-btn-lb').addEventListener('click', mwiScanLeaderboard);
         document.getElementById('mwi-btn-process').addEventListener('click', processUnverifiedProfiles);
         document.getElementById('mwi-btn-close').addEventListener('click', () => setVisible(false));
         launcher.addEventListener('click', () => setVisible(true));
@@ -1235,8 +1249,9 @@
     async function verifierUn(p) {
         if (isProcessing || isScanning || !estRh()) return;
         isProcessing = true;
-        const btn = document.getElementById('mwi-btn-process'), scanBtn = document.getElementById('mwi-btn-scan');
-        btn.disabled = scanBtn.disabled = true;
+        const btn = document.getElementById('mwi-btn-process');
+        btn.disabled = true;
+        majBoutonsScan();
         const spamWatch = startSpamWatch();
         let chatInput = null;
         try {
@@ -1257,7 +1272,8 @@
             spamWatch.disconnect();
             isProcessing = false;
             enAttente = null;
-            btn.disabled = scanBtn.disabled = false;
+            btn.disabled = false;
+            majBoutonsScan();
             updateModalUI();
         }
         // Fiche d'un autre joueur ouverte pendant l'attente : on prépare la sienne
@@ -1530,7 +1546,7 @@
         const cats = [];
         guildes.forEach(g => Object.keys(g.stats).forEach(c => { if (!cats.includes(c)) cats.push(c); }));
         if (!cats.length) {
-            view.innerHTML = head + '<p class="mwi-r-pempty">Aucune guilde lue pour le moment : lance « 1. Scanner » puis ouvre les classements de l\'onglet Guilds du leaderboard.</p>';
+            view.innerHTML = head + '<p class="mwi-r-pempty">Aucune guilde lue pour le moment : lance « 🏆 Leaderboard » puis ouvre les classements de l\'onglet Guilds.</p>';
             return;
         }
         if (!cats.includes(guildSort)) guildSort = cats[0];
@@ -1580,7 +1596,7 @@
     function guildCompareHtml(nomGuilde) {
         if (!nomGuilde || nomGuilde === MA_GUILDE) return '';
         const titre = `<h4 class="mwi-r-sub">${esc(nomGuilde)} face à ${esc(MA_GUILDE)}</h4>`;
-        if (!guildes.size) return titre + '<p class="mwi-r-pempty">Classements des guildes pas encore lus : clique sur « 1. Scanner ».</p>';
+        if (!guildes.size) return titre + '<p class="mwi-r-pempty">Classements des guildes pas encore lus : lance « 🏆 Leaderboard » et ouvre l\'onglet Guilds.</p>';
         const g = guildes.get(nomGuilde), moi = guildes.get(MA_GUILDE);
         if (!moi) return titre + `<p class="mwi-r-pempty">${esc(MA_GUILDE)} absente des classements lus : comparaison impossible.</p>`;
         const rang = guildRang;
@@ -2136,12 +2152,11 @@
 
         isProcessing = true;
         const btn = document.getElementById('mwi-btn-process');
-        const scanBtn = document.getElementById('mwi-btn-scan');
         const progress = document.getElementById('mwi-progress');
         const bar = document.getElementById('mwi-progress-bar');
 
         arretDemande = false;
-        scanBtn.disabled = true;
+        majBoutonsScan();
         btn.textContent = '■ Arrêter';
         btn.title = 'Arrêter la vérification après le profil en cours';
         progress.style.display = 'block';
@@ -2187,7 +2202,7 @@
             enAttente = null;
             btn.disabled = false;
             btn.title = 'Prépare /profile dans le chat pour chaque joueur : appuie sur Entrée pour chacun';
-            scanBtn.disabled = false;
+            majBoutonsScan();
             btn.textContent = '2. Vérifier Profils';
             progress.style.display = 'none';
             updateModalUI();
