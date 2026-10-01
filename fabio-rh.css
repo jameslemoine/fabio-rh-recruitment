@@ -18,7 +18,7 @@
 
 #mwi-tracker-modal {
     position: fixed; top: 60px; right: 12px; z-index: 99999;
-    width: 340px; max-width: calc(100vw - 16px);
+    width: 440px; max-width: calc(100vw - 16px);
     display: flex; flex-direction: column;
     background: var(--r-bg); color: var(--r-text);
     border: 1px solid var(--r-border); border-radius: 10px;
@@ -73,7 +73,7 @@
 .mwi-r-icon:hover { background: var(--r-panel-2); border-color: var(--r-accent); }
 .mwi-r-icon.close:hover { background: var(--r-err); border-color: var(--r-err); }
 
-.mwi-r-body { display: flex; flex-direction: column; gap: 12px; padding: 12px; flex: 1; min-height: 0; }
+.mwi-r-body { display: flex; flex-direction: column; gap: 14px; padding: 14px; flex: 1; min-height: 0; }
 
 /* Barre du haut : recherche + icônes (guildes, copier, vider), puis filtres et taille des cases */
 .mwi-r-toolbar { display: flex; gap: 8px; align-items: center; }
@@ -141,9 +141,9 @@
 
 .mwi-r-list {
     overflow-x: hidden; padding-right: 2px;
-    flex: 1; min-height: 120px; max-height: 320px; overflow-y: auto;
+    flex: 1; min-height: 160px; max-height: 400px; overflow-y: auto;
     list-style: none; margin: 0; padding: 0;
-    display: grid; grid-template-columns: 1fr; gap: 8px; align-content: start;
+    display: grid; grid-template-columns: 1fr; gap: 10px; align-content: start; padding-right: 4px;
 }
 #mwi-tracker-modal[data-mode="max"] .mwi-r-list {
     max-height: none;
@@ -153,7 +153,7 @@
 .mwi-r-list::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }
 
 .mwi-r-card {
-    padding: 10px 12px; background: var(--r-panel);
+    padding: 12px 14px; background: var(--r-panel);
     border: 1px solid var(--r-border); border-left: 3px solid var(--r-ok);
     border-radius: 6px; min-width: 0;
     transition: border-color .15s, background .15s;
@@ -161,7 +161,7 @@
 .mwi-r-card.guild { border-left-color: var(--r-gold); }
 .mwi-r-card.fail { border-left-color: var(--r-err); }
 .mwi-r-card.pending { border-left-color: var(--r-muted); }
-.mwi-r-name { font-weight: 700; font-size: 14px; color: var(--r-text); display: flex; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; }
+.mwi-r-name { font-weight: 700; font-size: 14px; line-height: 1.3; color: var(--r-text); display: flex; justify-content: space-between; align-items: center; gap: 10px; min-width: 0; }
 .mwi-r-who { display: flex; align-items: center; min-width: 0; overflow: hidden; }
 .mwi-r-who .mwi-r-player { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mwi-r-card:hover { background: var(--r-panel-2); border-color: var(--r-accent); }
@@ -179,17 +179,17 @@
 #mwi-tracker-modal[data-size="small"] .mwi-r-lvl i { display: none; }
 
 /* Liste + barre des skills à gauche, comme dans le jeu (icônes seules quand la modale est étroite) */
-.mwi-r-main { display: flex; gap: 8px; flex: 1; min-height: 0; container-type: inline-size; container-name: mwi-main; }
+.mwi-r-main { display: flex; gap: 12px; flex: 1; min-height: 0; container-type: inline-size; container-name: mwi-main; }
 .mwi-r-main .mwi-r-list { flex: 1; min-width: 0; }
 .mwi-r-skills {
     display: flex; flex-direction: column; gap: 1px; flex-shrink: 0; width: 44px;
-    max-height: 320px; overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
+    max-height: 400px; overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
     background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px;
 }
 #mwi-tracker-modal[data-mode="max"] .mwi-r-skills,
 #mwi-tracker-modal[data-sized="1"] .mwi-r-skills { max-height: none; }
 .mwi-r-sk {
-    position: relative; display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px;
+    position: relative; display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 6px;
     font-size: 13px; text-align: left; cursor: pointer; color: var(--r-text);
     background: transparent; border: 0; border-left: 3px solid transparent;
     transition: background .15s;
@@ -218,12 +218,16 @@
 .mwi-r-card:not(.guild):not(.fail):not(.pending) .mwi-r-tag { color: var(--r-ok); }
 .mwi-r-card.fail .mwi-r-tag { color: var(--r-err); }
 .mwi-r-card.guild .mwi-r-tag { color: var(--r-gold); }
-.mwi-r-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; font-size: 12px; color: var(--r-muted); }
+.mwi-r-stats { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin-top: 8px; font-size: 12px; color: var(--r-muted); }
+/* Pastille du skill : sur la ligne des stats (cases moyennes), à côté du nom pour les petites et grandes cases */
+.mwi-r-right .mwi-r-lvl { display: none; }
+#mwi-tracker-modal[data-size="small"] .mwi-r-right .mwi-r-lvl,
+#mwi-tracker-modal[data-size="large"] .mwi-r-right .mwi-r-lvl { display: inline; }
 .mwi-r-stats b { color: var(--r-text); font-weight: 600; }
 .mwi-r-sizes { display: flex; gap: 2px; padding: 2px; background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px; }
 .mwi-r-sizes .mwi-r-icon { border-color: transparent; color: var(--r-muted); }
 .mwi-r-sizes .mwi-r-icon.active { color: var(--r-accent); background: var(--r-panel-2); border-color: var(--r-accent); }
-.mwi-r-details { display: none; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 6px 0 0; font-size: 12px; }
+.mwi-r-details { display: none; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 10px 0 0; font-size: 12px; }
 .mwi-r-details dt { color: var(--r-muted); }
 .mwi-r-details dd { margin: 0; color: var(--r-text); font-weight: 600; }
 
@@ -283,7 +287,7 @@
 #mwi-tracker-modal[data-sized="1"] .mwi-r-pbody { max-height: none; }
 .mwi-r-pbody::-webkit-scrollbar { width: 8px; }
 .mwi-r-pbody::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }
-.mwi-r-pgrid { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: 13px; }
+.mwi-r-pgrid { display: grid; grid-template-columns: auto 1fr; gap: 8px 18px; margin: 0; font-size: 13px; }
 .mwi-r-pgrid dt { color: var(--r-muted); }
 .mwi-r-pgrid dd { margin: 0; font-weight: 700; }
 .mwi-r-pstat.free { color: var(--r-ok); }
