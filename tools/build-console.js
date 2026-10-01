@@ -5,7 +5,7 @@ const path = require('path');
 const { execSync } = require('child_process');
 
 const root = path.join(__dirname, '..');
-const SOURCES = ['Fabio RH Recruit Team-prive.js', 'fabio-rh.css'];
+const SOURCES = ['Fabio RH Recruit Team-1.0.js', 'fabio-rh.css'];
 const js = fs.readFileSync(path.join(root, SOURCES[0]), 'utf8');
 const css = fs.readFileSync(path.join(root, SOURCES[1]), 'utf8');
 

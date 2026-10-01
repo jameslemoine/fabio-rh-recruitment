@@ -6,8 +6,7 @@ Dépôt : https://github.com/jameslemoine/fabio-rh-recruitment (compte GitHub `j
 
 ## Fichiers
 
-- `Fabio RH Recruit Team-prive.js` : version privée (source unique), avec scan, vérification et envoi à la base (comptes rh). C'est le seul script à modifier. Il charge le CSS via `@resource FABIO_CSS` + `GM_getResourceText`.
-- `Fabio RH Recruit Team-public.js` : version de consultation publiée sur Greasy Fork, **générée** par `python3 tools/build-public.py` (ne jamais la modifier à la main). Le build retire les blocs `// #privé:début` … `// #privé:fin` (`<!-- … -->` dans le HTML) et les lignes terminées par `#privé`, enlève `@grant unsafeWindow`, remet `@name Fabio RH Recruit Team` (même nom et `@namespace` que la version déjà publiée, pour que Tampermonkey la mette à jour) et s'arrête si un nom de premier niveau retiré est encore utilisé. Tout nouveau code de scan ou de vérification doit être placé dans un bloc `#privé`.
+- `Fabio RH Recruit Team-1.0.js` : le userscript. Il charge le CSS via `@resource FABIO_CSS` + `GM_getResourceText`.
 - `fabio-rh.css` : tout le style de la modale (DA rouge et noir, couleurs du logo).
 - `FabioLucci.png` : logo ; il est aussi intégré en base64 dans le script (`FABIO_ICON`).
 - `tools/test.js` : tests Node des fonctions pures du script (extraites par leur nom).
@@ -17,15 +16,14 @@ Dépôt : https://github.com/jameslemoine/fabio-rh-recruitment (compte GitHub `j
 ## Branches
 
 - `dev` : branche de travail. Contient en plus `console-test.js`, `tools/`, `supabase/`, `.mcp.json`, `.gitignore` et ce `CLAUDE.md`.
-- `main` : contient uniquement les deux scripts (`-prive.js`, `-public.js`), `fabio-rh.css`, `FabioLucci.png` et `README.md`. Greasy Fork ne publie que `-public.js` ; le dépôt étant public, `-prive.js` y est lisible, mais il ne fait rien sans compte rh (la base bloque l'écriture).
+- `main` : version publiée sur Greasy Fork. Contient uniquement le script, `fabio-rh.css`, `FabioLucci.png` et `README.md`.
 
 ## Après chaque modification (sur `dev`)
 
-1. `node --check "Fabio RH Recruit Team-prive.js"` puis `node tools/test.js` (tests des fonctions pures)
-2. `python3 tools/build-public.py`, puis vérifier la syntaxe de `Fabio RH Recruit Team-public.js`.
-3. Commit des deux scripts et du CSS.
-4. `node tools/build-console.js` (depuis la version privée) puis `node --check console-test.js` : l'en-tête de `console-test.js` (et un `console.log` au lancement) reprend le hash et le titre de ce commit, pour savoir quelle version on teste.
-5. Commit de `console-test.js` seul, puis push sur `origin dev`.
+1. `node --check "Fabio RH Recruit Team-1.0.js"` puis `node tools/test.js` (tests des fonctions pures)
+2. Commit du script et du CSS.
+3. `node tools/build-console.js` puis `node --check console-test.js` : l'en-tête de `console-test.js` (et un `console.log` au lancement) reprend le hash et le titre de ce commit, pour savoir quelle version on teste.
+4. Commit de `console-test.js` seul, puis push sur `origin dev`.
 
 Sans Node sur la machine : `python3 tools/build-console.py` produit le même fichier, et `gjs` (SpiderMonkey) peut vérifier la syntaxe avec `new Function(source)`.
 
@@ -37,9 +35,9 @@ Ne jamais modifier `console-test.js` à la main.
 2. `git merge --no-ff --no-commit dev`
 3. Retirer les fichiers réservés à `dev` : `git rm -r --cached console-test.js tools supabase .mcp.json .gitignore CLAUDE.md` puis les supprimer du dossier. En cas de conflit modify/delete sur ces fichiers, `git rm` les résout.
 4. Vérifier avec `git ls-files` qu'il ne reste que les fichiers de `main`, puis commit du merge et push.
-5. Épingler le CSS sur ce commit de merge : dans la ligne `@resource FABIO_CSS` de `-prive.js`, remplacer le hash par `git rev-parse HEAD` :
+5. Épingler le CSS sur ce commit de merge : dans la ligne `@resource FABIO_CSS`, remplacer le hash par `git rev-parse HEAD` :
    `https://cdn.jsdelivr.net/gh/jameslemoine/fabio-rh-recruitment@<hash complet>/fabio-rh.css`
-6. Incrémenter `@version` (1.11 → 1.12…) dans `-prive.js`, puis régénérer `-public.js` (`tools/` n'étant pas sur `main`, lancer `git show dev:tools/build-public.py > /tmp/build-public.py && python3 /tmp/build-public.py`).
+6. Incrémenter `@version` (1.11 → 1.12…).
 7. Vérifier que l'URL jsDelivr répond 200 (`curl -s -o /dev/null -w "%{http_code}"`), commit « Fabio RH x.y : CSS épinglé… » et push sur `main`.
 8. Revenir sur `dev`, `git cherry-pick` ce dernier commit, régénérer `console-test.js`, commit et push.
 

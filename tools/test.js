@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
 
-const src = fs.readFileSync(path.join(__dirname, '..', 'Fabio RH Recruit Team-prive.js'), 'utf8').replace(/\r/g, '');
+const src = fs.readFileSync(path.join(__dirname, '..', 'Fabio RH Recruit Team-1.0.js'), 'utf8').replace(/\r/g, '');
 const lignes = src.split('\n');
 
 // Déclaration de premier niveau (indentation 4) : une ligne, ou jusqu'à la fermeture "    }" / "    };"
