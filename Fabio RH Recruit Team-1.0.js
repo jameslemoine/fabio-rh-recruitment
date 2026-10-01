@@ -130,8 +130,10 @@
     }
 
     const dbSession = () => gmGet(DB_SESSION, null);
-    function garderSession(json) {
-        const s = { access: json.access_token, refresh: json.refresh_token, expire: json.expires_at * 1000, email: json.user && json.user.email };
+    // Rôle du compte (table recruteurs) : « rh » scanne, vérifie et écrit ; « lecteur » consulte seulement
+    const estRh = () => (dbSession() || {}).role === 'rh';
+    function garderSession(json, role) {
+        const s = { access: json.access_token, refresh: json.refresh_token, expire: json.expires_at * 1000, email: json.user && json.user.email, role };
         gmSet(DB_SESSION, s);
         return s;
     }
@@ -158,13 +160,14 @@
         if (!s) return null;
         if (Date.now() < s.expire - 60000) return s.access;
         const r = await dbHttp('POST', '/auth/v1/token?grant_type=refresh_token', { refresh_token: s.refresh });
-        if (r.ok) return garderSession(r.json).access;
+        if (r.ok) return garderSession(r.json, s.role).access;
         if (r.status >= 400 && r.status < 500) gmSet(DB_SESSION, null); // session révoquée : reconnexion nécessaire
         return null;
     }
 
     // Ajoute un envoi à la file puis la vide dans l'ordre ; un échec garde le reste pour plus tard
     function dbEnvoyer(type, donnees) {
+        if (!estRh()) return; // un lecteur n'écrit rien
         const file = gmGet(DB_FILE, []);
         file.push({ type, donnees });
         gmSet(DB_FILE, file.slice(-DB_FILE_MAX));
@@ -260,6 +263,14 @@
     async function dbCharger() {
         const jeton = await dbJeton();
         if (!jeton) return;
+        const moi = await dbHttp('GET', '/rest/v1/recruteurs?select=role,actif', undefined, jeton);
+        if (moi.ok) {
+            const ligne = (moi.json || [])[0];
+            const s = dbSession();
+            if (s) gmSet(DB_SESSION, { ...s, role: ligne && ligne.actif ? ligne.role : 'aucun' });
+            majBase();
+            if (!ligne || !ligne.actif) { setStatus('Compte connecté mais pas encore autorisé : demande un accès.', 'warn'); return; }
+        }
         const joueurs = await dbLire('/rest/v1/joueurs?select=nom,ironcow,couleur,statut,a_guilde,guilde,rang,total_level,combat_level,age&order=nom', jeton);
         if (!joueurs) { log('Base : lecture des joueurs impossible.'); return; }
         let ajoutes = 0;
@@ -323,6 +334,10 @@
         if (info) info.textContent = s ? `Connecté : ${s.email}${attente ? ` · ${attente} en attente` : ''}` : '';
         const panneau = document.getElementById('mwi-db-panel');
         if (panneau) panneau.dataset.connecte = s ? '1' : '';
+        // Scan et vérification masqués hors compte rh
+        const modal = document.getElementById('mwi-tracker-modal');
+        if (modal) modal.dataset.role = estRh() ? 'rh' : 'lecteur';
+        if (info && s && s.role) info.textContent += ` · ${s.role === 'rh' ? 'RH' : s.role === 'lecteur' ? 'lecture seule' : 'non autorisé'}`;
     }
 
     // ---------------------------------------------------------------
@@ -492,6 +507,7 @@
     }
 
     window.mwiScanChat = async function() {
+        if (!estRh()) { setStatus('Scan réservé aux comptes RH.', 'warn'); return; }
         if (isProcessing || isScanning) {
             setStatus('Patiente, une opération est déjà en cours.', 'warn');
             return;
@@ -1221,14 +1237,14 @@
         document.getElementById('mwi-tracker-modal').dataset.view = 'profile';
         renderProfileView();
         const p = recrues.get(username);
-        if (p && !p.verifie) verifierUn(p);
+        if (p && !p.verifie && estRh()) verifierUn(p);
         else if (p) dbFiche(p);
     }
 
     // Vérification d'un seul joueur à l'ouverture de sa fiche (sauf si un scan ou une vérification tourne déjà) :
     // la commande est préremplie, le joueur l'envoie ; quitter la fiche annule l'attente
     async function verifierUn(p) {
-        if (isProcessing || isScanning) return;
+        if (isProcessing || isScanning || !estRh()) return;
         isProcessing = true;
         const btn = document.getElementById('mwi-btn-process'), scanBtn = document.getElementById('mwi-btn-scan');
         btn.disabled = scanBtn.disabled = true;
@@ -1465,6 +1481,7 @@
             ? 'Détails non récupérés pour ce joueur : relance la vérification.'
             : enAttente === p.nom ? 'Commande /profile prête dans le chat du jeu : appuie sur Entrée pour récupérer toutes les infos.'
             : isProcessing ? 'Vérification du profil en cours...'
+            : !estRh() ? 'Profil pas encore vérifié par un RH.'
             : 'Profil pas encore vérifié : clique sur « 2. Vérifier Profils » pour récupérer toutes les infos.'}</p>`;
 
         // Toutes les sections sont dans la page : le CSS n'affiche que l'onglet actif en petite fenêtre,
@@ -2105,6 +2122,7 @@
     }
 
     async function processUnverifiedProfiles() {
+        if (!estRh()) { setStatus('Vérification réservée aux comptes RH.', 'warn'); return; }
         // Pendant la vérification, le même bouton sert à l'arrêter (après le profil en cours)
         if (isProcessing) {
             arretDemande = true;

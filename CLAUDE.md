@@ -54,7 +54,8 @@ Projet `cyvtgzkepticodlcrtjb` (https://cyvtgzkepticodlcrtjb.supabase.co) : stock
 - Pas de CLI Supabase ni de `psql` sur la machine : tout passe par le MCP.
 - Tables : `joueurs` (état courant), `scans` + `scan_entrees` (journal complet de chaque scan), `guildes_classements`, `verifications` (avec le profil brut `profile_shared`), `recruteurs` (comptes autorisés). Le script envoie un scan par `rpc/enregistrer_scan` et chaque vérification par un insert dans `verifications` ; un trigger met `joueurs` à jour.
 - Côté script (section 0b) : connexion du recruteur par le bouton ☁ de la modale, session et file d'envois en attente dans `GM_getValue`/`GM_setValue`, requêtes par `GM_xmlhttpRequest` (`@connect` du projet), `fetch` dans `console-test.js`. Au chargement et à la connexion, `dbCharger` relit `joueurs` (statut, guilde, stats) et les derniers `guildes_classements` ; `dbFiche` charge le profil brut de la dernière vérification à l'ouverture d'une fiche.
-- Ajouter un recruteur : créer son compte (tableau de bord Supabase > Authentication > Add user, ou API admin avec la clé secrète), puis `insert into public.recruteurs (user_id, pseudo) values ('<uuid>', '<pseudo>')`. Sans cette ligne, le compte n'a accès à rien.
+- Rôles (colonne `recruteurs.role`) : `rh` scanne, vérifie et écrit (`private.est_rh()`) ; `lecteur` consulte seulement (`private.est_recruteur()`). Le script masque canaux, scan et vérification hors compte rh, et n'envoie rien.
+- Ajouter un recruteur : créer son compte (Authentication > Add user, « Auto Confirm User »), puis dans l'éditeur SQL `select private.definir_role('<email>', 'rh')` (ou `'lecteur'`, ou `null` pour retirer l'accès). Sans ligne dans `recruteurs`, le compte n'a accès à rien ; supprimer le compte supprime aussi sa ligne.
 
 ## Règles du jeu sur l'automatisation (à respecter dans toute modification)
 

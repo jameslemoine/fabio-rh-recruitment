@@ -88,6 +88,11 @@
 .mwi-r-dbinfo { flex: 1; font-size: 12px; color: var(--r-ok); }
 .mwi-r-dbpanel[data-connecte="1"] input, .mwi-r-dbpanel[data-connecte="1"] #mwi-db-login,
 .mwi-r-dbpanel:not([data-connecte="1"]) #mwi-db-sync, .mwi-r-dbpanel:not([data-connecte="1"]) #mwi-db-logout { display: none; }
+/* Lecture seule (lecteur ou non connecté) : ni canaux, ni scan, ni vérification */
+#mwi-tracker-modal[data-role="lecteur"] .mwi-r-chans-head,
+#mwi-tracker-modal[data-role="lecteur"] .mwi-r-chans,
+#mwi-tracker-modal[data-role="lecteur"] .mwi-r-progress,
+#mwi-tracker-modal[data-role="lecteur"] .mwi-r-actions { display: none; }
 
 .mwi-r-chans-head { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--r-muted); }
 .mwi-r-chans { display: flex; flex-wrap: wrap; gap: 4px; }
