@@ -1,7 +1,7 @@
 // Fichier généré par tools/build-console.js - ne pas modifier à la main.
 // Coller tout le contenu dans la console du jeu (F12) pour tester sans Tampermonkey.
-// Version : c6e5741 - Retour à un seul script : scan et vérification affichés selon le rôle rh
-console.log('[Fabio RH] console-test :', "c6e5741 - Retour à un seul script : scan et vérification affichés selon le rôle rh");
+// Version : da5dbf5 - Fabio RH 1.19 : CSS épinglé sur la nouvelle version
+console.log('[Fabio RH] console-test :', "da5dbf5 - Fabio RH 1.19 : CSS épinglé sur la nouvelle version");
 (function() {
     'use strict';
 
