@@ -1,12 +1,19 @@
 // Fichier généré par tools/build-console.js - ne pas modifier à la main.
 // Coller tout le contenu dans la console du jeu (F12) pour tester sans Tampermonkey.
-// Version : 59a2db5 - Rôles rh / lecteur : scan et vérification réservés aux rh, consultation seule pour les lecteurs
-console.log('[Fabio RH] console-test :', "59a2db5 - Rôles rh / lecteur : scan et vérification réservés aux rh, consultation seule pour les lecteurs");
+// Version : 1f7f058 - Version privée (scan) et version publique de consultation générée par tools/build-public.py
+console.log('[Fabio RH] console-test :', "1f7f058 - Version privée (scan) et version publique de consultation générée par tools/build-public.py");
+// Version privée (source) : scan du chat et du leaderboard, vérification des profils, envoi à la base.
+// La version publique (consultation seule) est générée par tools/build-public.py : les blocs
+// « #privé:début » / « #privé:fin » et les lignes terminées par « // #privé » en sont retirés.
+
+
+
 (function() {
     'use strict';
 
-    const CHAT_MESSAGE_CLASS = 'ChatMessage_chatMessage';
+    const CHAT_MESSAGE_CLASS = 'ChatMessage_chatMessage'; // #privé
     const FABIO_ICON = 'data:image/png;base64,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';
+    // #privé:début
     const ATTENTE_PROFIL_MS = 1500; // délai MAX : on passe au suivant dès que le profil est lu
     const POLL_MS = 40;
 
@@ -18,20 +25,21 @@ console.log('[Fabio RH] console-test :', "59a2db5 - Rôles rh / lecteur : scan e
     const MAX_REPRISES_ANTISPAM = 3;
     const ANTISPAM_RE = /spam|too (?:fast|quickly|many|frequent)|slow down|rate.?limit|trop (?:vite|rapide)/i;
     let spamDetectedAt = 0;
-    const STORAGE_KEY = 'mwi-radar-ui';
     const TAB_SWITCH_WAIT_MS = 200; // laisse le temps au DOM de charger l'historique du canal
+    // #privé:fin
+    const STORAGE_KEY = 'mwi-radar-ui';
 
     const recrues = new Map();
     const MA_GUILDE = 'Fabio Lucci';
     const guildes = new Map(); // nom -> { nom, stats: { classement: { rang, valeurs: { colonne: texte } } } }
     let isProcessing = false;
     let isScanning = false;
-    let arretDemande = false; // bouton « Arrêter » pendant la vérification des profils
+    let arretDemande = false; // bouton « Arrêter » pendant la vérification des profils #privé
     let enAttente = null; // pseudo dont la commande /profile est préremplie, en attente de la touche Entrée du joueur
     let currentFilter = 'free';
     let currentMode = 'all'; // 'all' | 'standard' | 'ironcow'
 
-    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms)); // #privé
     const log = (...a) => console.log('[Radar]', ...a);
     const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -42,6 +50,7 @@ console.log('[Fabio RH] console-test :', "59a2db5 - Rôles rh / lecteur : scan e
     // (skills, équipement, capacités, consommables et déclencheurs de combat, maison, sanctuaires...).
     // On l'écoute au passage, sans rien envoyer : plus fiable et plus complet que la lecture de l'écran.
     const profilsBruts = new Map(); // pseudo -> profil
+    // #privé:début
     const page = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
     const toPage = (fn) => typeof exportFunction === 'function' ? exportFunction(fn, page) : fn;
     try {
@@ -68,6 +77,7 @@ console.log('[Fabio RH] console-test :', "59a2db5 - Rôles rh / lecteur : scan e
     } catch (e) {
         log('Écoute des profils impossible, lecture à l\'écran uniquement :', e);
     }
+    // #privé:fin
 
     // ---------------------------------------------------------------
     // 0b. Base Supabase : chaque scan et chaque vérification y est enregistré
@@ -78,8 +88,8 @@ console.log('[Fabio RH] console-test :', "59a2db5 - Rôles rh / lecteur : scan e
     const DB_KEY = 'sb_publishable_iDo61JeURJa-DFmvwFQfWA_iNvrGi3M';
     const DB_SESSION = 'fabio-db-session';
     const DB_FILE = 'fabio-db-file'; // envois en attente (pas connecté, réseau coupé...)
-    const DB_FILE_MAX = 300;
-    let dbEnvoi = false;
+    const DB_FILE_MAX = 300; // #privé
+    let dbEnvoi = false; // #privé
 
     // Stockage du gestionnaire de scripts (hors de la page du jeu), localStorage dans la console
     const gmGet = (k, d) => {
@@ -124,7 +134,7 @@ console.log('[Fabio RH] console-test :', "59a2db5 - Rôles rh / lecteur : scan e
         const r = await dbHttp('POST', '/auth/v1/token?grant_type=password', { email, password });
         if (!r.ok) return (r.json && (r.json.msg || r.json.error_description || r.json.message)) || `erreur ${r.status}`;
         garderSession(r.json);
-        dbVider();
+        dbVider(); // #privé
         dbCharger();
         return '';
     }
@@ -147,6 +157,7 @@ console.log('[Fabio RH] console-test :', "59a2db5 - Rôles rh / lecteur : scan e
         return null;
     }
 
+    // #privé:début
     // Ajoute un envoi à la file puis la vide dans l'ordre ; un échec garde le reste pour plus tard
     function dbEnvoyer(type, donnees) {
         if (!estRh()) return; // un lecteur n'écrit rien
@@ -228,6 +239,8 @@ console.log('[Fabio RH] console-test :', "59a2db5 - Rôles rh / lecteur : scan e
             guildes: lesGuildes
         });
     }
+
+    // #privé:fin
 
     // Lecture paginée d'une table (PostgREST renvoie 1000 lignes au plus par requête)
     async function dbLire(chemin, jeton) {
@@ -322,6 +335,7 @@ console.log('[Fabio RH] console-test :', "59a2db5 - Rôles rh / lecteur : scan e
         if (info && s && s.role) info.textContent += ` · ${s.role === 'rh' ? 'RH' : s.role === 'lecteur' ? 'lecture seule' : 'non autorisé'}`;
     }
 
+    // #privé:début
     // ---------------------------------------------------------------
     // 1. Scanner le chat (Cible précisément les onglets du jeu via data-mention-channel)
     // ---------------------------------------------------------------
@@ -693,6 +707,8 @@ console.log('[Fabio RH] console-test :', "59a2db5 - Rôles rh / lecteur : scan e
         return { countNew, classements, guildCats };
     }
 
+    // #privé:fin
+
     // Nombre lu dans une cellule du jeu : "10 054 281", "1,2M", "513", "12.5"
     // Un seul "." ou "," suivi de 1 ou 2 chiffres est une décimale, sinon un séparateur de milliers
     const num = (v) => {
@@ -703,6 +719,7 @@ console.log('[Fabio RH] console-test :', "59a2db5 - Rôles rh / lecteur : scan e
         return parseFloat(decimal ? m[1].replace(',', '.') : m[1].replace(/[.,]/g, '')) * mult;
     };
 
+    // #privé:début
     // Tableau affiché sur la page : en-têtes nettoyés (sans flèches de tri) et lignes de cellules
     function readTable(root) {
         const table = Array.from(panneauAffiche(root).querySelectorAll('table')).find(t => visible(t) && !masque(t));
@@ -760,6 +777,8 @@ console.log('[Fabio RH] console-test :', "59a2db5 - Rôles rh / lecteur : scan e
         return lus;
     }
 
+    // #privé:fin
+
     function newRecruit(nom, color = '') {
         return {
             nom,
@@ -814,6 +833,7 @@ console.log('[Fabio RH] console-test :', "59a2db5 - Rôles rh / lecteur : scan e
         return chatInput;
     }
 
+    // #privé:début
     // Vide le champ du chat s'il contient encore la commande préremplie (vérification arrêtée ou annulée)
     function viderPreremplissage(chatInput, username) {
         if (!chatInput || chatInput.value !== `/profile ${username}`) return;
@@ -836,6 +856,7 @@ console.log('[Fabio RH] console-test :', "59a2db5 - Rôles rh / lecteur : scan e
         setStatus(`Lecture du profil de ${username}...`, '');
         return analyzeProfile(username);
     }
+    // #privé:fin
 
     // ---------------------------------------------------------------
     // 3. Interface & Styles
@@ -984,7 +1005,9 @@ console.log('[Fabio RH] console-test :', "59a2db5 - Rôles rh / lecteur : scan e
                     <input type="password" class="mwi-r-select" id="mwi-db-pass" placeholder="Mot de passe" autocomplete="current-password">
                     <button type="submit" class="mwi-r-btn primary" id="mwi-db-login">Connexion</button>
                     <span class="mwi-r-dbinfo" id="mwi-db-info"></span>
+                    <!-- #privé:début -->
                     <button type="button" class="mwi-r-btn" id="mwi-db-sync" title="Renvoyer les scans et vérifications en attente">Envoyer</button>
+                    <!-- #privé:fin -->
                     <button type="button" class="mwi-r-btn" id="mwi-db-logout">Déconnexion</button>
                 </form>
                 <div class="mwi-r-toolbar">
@@ -1013,19 +1036,23 @@ console.log('[Fabio RH] console-test :', "59a2db5 - Rôles rh / lecteur : scan e
                     <button class="mwi-r-btn" id="mwi-btn-copy" title="Copier les pseudos affichés">Copier</button>
                     <button class="mwi-r-btn" id="mwi-btn-clear" title="Vider la liste">Vider</button>
                 </div>
+                <!-- #privé:début -->
                 <div class="mwi-r-chans-head">
                     <span>Canaux à scanner</span>
                     <button class="mwi-r-icon" id="mwi-btn-chans" title="Rafraîchir la liste des canaux">↻</button>
                 </div>
                 <div class="mwi-r-chans" id="mwi-channels"></div>
+                <!-- #privé:fin -->
                 <ul class="mwi-r-list" id="mwi-tracker-list"></ul>
                 <div class="mwi-r-pview" id="mwi-profile-view"></div>
                 <div class="mwi-r-gview" id="mwi-guild-view"></div>
+                <!-- #privé:début -->
                 <div class="mwi-r-progress" id="mwi-progress"><div id="mwi-progress-bar"></div></div>
                 <div class="mwi-r-actions">
                     <button class="mwi-r-btn" id="mwi-btn-scan" title="Scanne le chat puis le leaderboard du jeu">1. Scanner</button>
                     <button class="mwi-r-btn primary" id="mwi-btn-process" title="Prépare /profile dans le chat pour chaque joueur : appuie sur Entrée pour chacun">2. Vérifier Profils</button>
                 </div>
+                <!-- #privé:fin -->
                 <div class="mwi-r-foot">
                     <span id="mwi-status">En attente d'action...</span>
                     <span id="mwi-counts"></span>
@@ -1052,8 +1079,8 @@ console.log('[Fabio RH] console-test :', "59a2db5 - Rôles rh / lecteur : scan e
         setMode(saved.mode === 'max' || saved.mode === 'min' ? saved.mode : 'normal');
         setVisible(saved.visible !== false);
 
-        document.getElementById('mwi-btn-scan').addEventListener('click', window.mwiScanChat);
-        document.getElementById('mwi-btn-process').addEventListener('click', processUnverifiedProfiles);
+        document.getElementById('mwi-btn-scan').addEventListener('click', window.mwiScanChat); // #privé
+        document.getElementById('mwi-btn-process').addEventListener('click', processUnverifiedProfiles); // #privé
         document.getElementById('mwi-btn-close').addEventListener('click', () => setVisible(false));
         launcher.addEventListener('click', () => setVisible(true));
         // Bouton Profile : ouvre le profil dans le jeu ; clic sur la case : ouvre la fiche dans la modale
@@ -1109,10 +1136,12 @@ console.log('[Fabio RH] console-test :', "59a2db5 - Rôles rh / lecteur : scan e
             setSize(b.dataset.size);
             saveUI({ cardSize: b.dataset.size });
         }));
+        // #privé:début
         document.getElementById('mwi-btn-chans').addEventListener('click', renderChannels);
         launcher.addEventListener('click', renderChannels);
         renderChannels();
         setTimeout(renderChannels, 5000); // le chat du jeu se charge après le script
+        // #privé:fin
         document.getElementById('mwi-btn-copy').addEventListener('click', copyVisibleNames);
         enableSearch();
         document.getElementById('mwi-btn-clear').addEventListener('click', () => {
@@ -1134,10 +1163,10 @@ console.log('[Fabio RH] console-test :', "59a2db5 - Rôles rh / lecteur : scan e
             if (!erreur) dbPanel.hidden = true;
             majBase();
         });
-        document.getElementById('mwi-db-sync').addEventListener('click', dbVider);
+        document.getElementById('mwi-db-sync').addEventListener('click', dbVider); // #privé
         document.getElementById('mwi-db-logout').addEventListener('click', dbDeconnexion);
         majBase();
-        dbVider(); // envois restés en attente à la dernière session
+        dbVider(); // envois restés en attente à la dernière session #privé
         dbCharger(); // joueurs et guildes enregistrés lors des sessions précédentes
 
         enableDrag(modal, document.getElementById('mwi-r-head'));
@@ -1219,10 +1248,11 @@ console.log('[Fabio RH] console-test :', "59a2db5 - Rôles rh / lecteur : scan e
         document.getElementById('mwi-tracker-modal').dataset.view = 'profile';
         renderProfileView();
         const p = recrues.get(username);
-        if (p && !p.verifie && estRh()) verifierUn(p);
-        else if (p) dbFiche(p);
+        if (p && !p.verifie && estRh()) { verifierUn(p); return; } // #privé
+        if (p) dbFiche(p);
     }
 
+    // #privé:début
     // Vérification d'un seul joueur à l'ouverture de sa fiche (sauf si un scan ou une vérification tourne déjà) :
     // la commande est préremplie, le joueur l'envoie ; quitter la fiche annule l'attente
     async function verifierUn(p) {
@@ -1257,6 +1287,7 @@ console.log('[Fabio RH] console-test :', "59a2db5 - Rôles rh / lecteur : scan e
         const autre = currentProfile && recrues.get(currentProfile);
         if (autre && autre !== p && !autre.verifie) verifierUn(autre);
     }
+    // #privé:fin
     function closeProfileView() {
         currentProfile = null;
         document.getElementById('mwi-tracker-modal').dataset.view = 'list';
@@ -1715,6 +1746,7 @@ console.log('[Fabio RH] console-test :', "59a2db5 - Rôles rh / lecteur : scan e
         }).join('');
     }
 
+    // #privé:début
     // ---------------------------------------------------------------
     // 4. Lecture du profil
     // ---------------------------------------------------------------
@@ -2186,6 +2218,8 @@ console.log('[Fabio RH] console-test :', "59a2db5 - Rôles rh / lecteur : scan e
             updateModalUI();
         }
     }
+
+    // #privé:fin
 
     // Attente que la page soit prête pour injecter l'interface
     if (document.readyState === 'loading') {
