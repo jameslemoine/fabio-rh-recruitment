@@ -1,7 +1,7 @@
 // Fichier généré par tools/build-console.js - ne pas modifier à la main.
 // Coller tout le contenu dans la console du jeu (F12) pour tester sans Tampermonkey.
-// Version : 83adf27 - Bouton En ligne à trois états : tous, 🟢 en ligne, 🔴 hors ligne
-console.log('[Fabio RH] console-test :', "83adf27 - Bouton En ligne à trois états : tous, 🟢 en ligne, 🔴 hors ligne");
+// Version : 38b3253 - Fabio RH 1.21
+console.log('[Fabio RH] console-test :', "38b3253 - Fabio RH 1.21");
 (function() {
     'use strict';
 
