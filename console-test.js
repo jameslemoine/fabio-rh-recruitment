@@ -1,7 +1,7 @@
 // Fichier généré par tools/build-console.js - ne pas modifier à la main.
 // Coller tout le contenu dans la console du jeu (F12) pour tester sans Tampermonkey.
-// Version : cdecf93 - Canaux retirés de la modale, filtre « Dispo » (en ligne ou ne fait rien)
-console.log('[Fabio RH] console-test :', "cdecf93 - Canaux retirés de la modale, filtre « Dispo » (en ligne ou ne fait rien)");
+// Version : a6e5510 - Voyant en ligne retiré des cases de la liste
+console.log('[Fabio RH] console-test :', "a6e5510 - Voyant en ligne retiré des cases de la liste");
 (function() {
     'use strict';
 
@@ -1866,7 +1866,7 @@ console.log('[Fabio RH] console-test :', "cdecf93 - Canaux retirés de la modale
                     ${production ? `<dt>🏭 Production</dt><dd>${esc(pretty(production.skill))} ${equipementHtml(production.eq)}</dd>` : ''}
                 </dl>`;
             return `<li class="mwi-r-card ${cat}" data-player="${esc(p.nom)}" title="Voir la fiche du joueur">
-                <div class="mwi-r-name"><span class="mwi-r-who">${voyant(p)}<span class="mwi-r-player" style="${nameStyle}">${esc(p.nom)}</span>${p.ironcow ? '<span class="mwi-r-iron" title="Ironcow">🐄</span>' : ''}</span><span class="mwi-r-right">${skillChip(p)}<span class="mwi-r-tag" title="${tag}">${tag}</span></span></div>
+                <div class="mwi-r-name"><span class="mwi-r-who"><span class="mwi-r-player" style="${nameStyle}">${esc(p.nom)}</span>${p.ironcow ? '<span class="mwi-r-iron" title="Ironcow">🐄</span>' : ''}</span><span class="mwi-r-right">${skillChip(p)}<span class="mwi-r-tag" title="${tag}">${tag}</span></span></div>
                 ${stats}
                 ${details}
             </li>`;
