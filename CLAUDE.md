@@ -15,7 +15,7 @@ Dépôt : https://github.com/jameslemoine/fabio-rh-recruitment (compte GitHub `j
 
 ## Branches
 
-- `dev` : branche de travail. Contient en plus `console-test.js`, `tools/` et ce `CLAUDE.md`.
+- `dev` : branche de travail. Contient en plus `console-test.js`, `tools/`, `supabase/`, `.mcp.json`, `.gitignore` et ce `CLAUDE.md`.
 - `main` : version publiée sur Greasy Fork. Contient uniquement le script, `fabio-rh.css`, `FabioLucci.png` et `README.md`.
 
 ## Après chaque modification (sur `dev`)
@@ -33,7 +33,7 @@ Ne jamais modifier `console-test.js` à la main.
 
 1. `git switch main && git pull`
 2. `git merge --no-ff --no-commit dev`
-3. Retirer les fichiers réservés à `dev` : `git rm -r --cached console-test.js tools CLAUDE.md` puis les supprimer du dossier. En cas de conflit modify/delete sur ces fichiers, `git rm` les résout.
+3. Retirer les fichiers réservés à `dev` : `git rm -r --cached console-test.js tools supabase .mcp.json .gitignore CLAUDE.md` puis les supprimer du dossier. En cas de conflit modify/delete sur ces fichiers, `git rm` les résout.
 4. Vérifier avec `git ls-files` qu'il ne reste que les fichiers de `main`, puis commit du merge et push.
 5. Épingler le CSS sur ce commit de merge : dans la ligne `@resource FABIO_CSS`, remplacer le hash par `git rev-parse HEAD` :
    `https://cdn.jsdelivr.net/gh/jameslemoine/fabio-rh-recruitment@<hash complet>/fabio-rh.css`
@@ -42,6 +42,16 @@ Ne jamais modifier `console-test.js` à la main.
 8. Revenir sur `dev`, `git cherry-pick` ce dernier commit, régénérer `console-test.js`, commit et push.
 
 Pourquoi : Greasy Fork préfère des ressources externes figées, et Tampermonkey ne recharge un `@resource` que si `@version` change.
+
+## Supabase
+
+Projet `cyvtgzkepticodlcrtjb` (https://cyvtgzkepticodlcrtjb.supabase.co) : stockera les profils récupérés par le userscript.
+
+- Accès par le serveur MCP `supabase` (`.mcp.json`, authentifié via `/mcp`). Les outils en lecture seule sont autorisés sans demande dans `.claude/settings.local.json` ; `execute_sql` et `apply_migration` restent soumis à confirmation.
+- Secrets dans `.secrets/supabase.env` (ignoré) : ne jamais les recopier dans le script, un commit ou un message. Le script public n'utilise que l'URL et la clé publishable, avec la RLS activée sur chaque table.
+- Tout changement de schéma passe par `apply_migration`, puis le même SQL est enregistré dans `supabase/migrations/<version>_<nom>.sql` (version lue avec `list_migrations`) et commité sur `dev`.
+- Après chaque migration : `get_advisors` (security puis performance) et corriger ce qu'il signale.
+- Pas de CLI Supabase ni de `psql` sur la machine : tout passe par le MCP.
 
 ## Règles du jeu sur l'automatisation (à respecter dans toute modification)
 
