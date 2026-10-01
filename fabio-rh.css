@@ -210,21 +210,18 @@
 .mwi-r-details dt { color: var(--r-muted); }
 .mwi-r-details dd { margin: 0; color: var(--r-text); font-weight: 600; }
 
-/* Taille des cases : grandes = toutes les infos en liste, moyennes = bouton visible, petites = bouton au survol */
+/* Taille des cases : grandes = toutes les infos en liste, moyennes = stats sur une ligne, petites = nom seul */
 #mwi-tracker-modal[data-size="large"] .mwi-r-card { padding: 10px 12px; }
 #mwi-tracker-modal[data-size="large"] .mwi-r-name { font-size: 15px; }
 #mwi-tracker-modal[data-size="large"] .mwi-r-stats,
 #mwi-tracker-modal[data-size="large"] .mwi-r-tag { display: none; }
 #mwi-tracker-modal[data-size="large"] .mwi-r-details { display: grid; }
 #mwi-tracker-modal[data-size="large"][data-mode="max"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
-#mwi-tracker-modal[data-size="large"] .mwi-r-profile,
-#mwi-tracker-modal[data-size="medium"] .mwi-r-profile { visibility: visible; }
 #mwi-tracker-modal[data-size="small"] .mwi-r-card { padding: 4px 8px; }
 #mwi-tracker-modal[data-size="small"] .mwi-r-name { font-size: 13px; align-items: center; }
 #mwi-tracker-modal[data-size="small"] .mwi-r-stats { display: none; }
 #mwi-tracker-modal[data-size="small"] .mwi-r-list { gap: 3px; }
 #mwi-tracker-modal[data-size="small"][data-mode="max"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
-#mwi-tracker-modal[data-size="small"] .mwi-r-card:hover .mwi-r-profile { visibility: visible; }
 #mwi-tracker-modal[data-size="small"] .mwi-r-card { border-left-width: 1px; }
 #mwi-tracker-modal[data-size="small"] .mwi-r-tag { font-size: 0; }
 #mwi-tracker-modal[data-size="small"] .mwi-r-tag::before {
