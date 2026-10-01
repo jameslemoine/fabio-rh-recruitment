@@ -8,8 +8,6 @@
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
 // @copyright    2026 Fabio Lucci - Tous droits reserves - Yloise
-// @resource     FABIO_CSS https://cdn.jsdelivr.net/gh/jameslemoine/fabio-rh-recruitment@92fcdc7d9e7e296d33f131ca1ff60304719bbbee/fabio-rh.css
-// @grant        GM_getResourceText
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -228,22 +226,19 @@
     }
 
     // Un scan : onglets, compteurs, journal complet (y compris les lignes ignorées), joueurs vus et classements de guildes
-    function dbScan({ debut, onglets, totalMessages, countNew, leaderboard, guildCats, scanLog }) {
+    function dbScan({ debut, onglets, totalMessages, countNew, classements, guildesLues, scanLog }) {
         const vus = new Set(scanLog.filter(e => recrues.has(e.pseudo)).map(e => e.pseudo));
-        const lesGuildes = [];
-        if (guildCats) guildes.forEach(g => Object.entries(g.stats).forEach(([classement, st]) =>
-            lesGuildes.push({ guilde: g.nom, classement, rang: Number.isFinite(st.rang) ? st.rang : null, valeurs: st.valeurs })));
         dbEnvoyer('scan', {
             debut,
             onglets,
-            sources: ['chat', ...(sourceActive(SOURCE_LEADERBOARD) ? ['leaderboard'] : []), ...(sourceActive(SOURCE_GUILDES) ? ['guildes'] : [])],
+            sources: [...(onglets.length ? ['chat'] : []), ...classements],
             mode: currentMode,
             nb_messages: totalMessages,
             nb_nouveaux: countNew,
-            nb_classements: leaderboard,
+            nb_classements: classements.length,
             joueurs: Array.from(vus, nom => { const r = recrues.get(nom); return { nom, ironcow: !!r.ironcow, couleur: r.color || '' }; }),
             entrees: scanLog.map(e => ({ pseudo: String(e.pseudo || '-'), resultat: e.resultat, onglet: e.onglet || null, brut: e.brut || null })),
-            guildes: lesGuildes
+            guildes: guildesLues
         });
     }
 
@@ -290,17 +285,14 @@
             p.ironcow = !!j.ironcow;
         }
 
-        // Classements du dernier scan qui a lu l'onglet Guilds (sauf si un scan de cette session les a déjà lus)
-        if (!guildes.size) {
-            const dernier = await dbHttp('GET', '/rest/v1/guildes_classements?select=scan_id&order=scan_id.desc&limit=1', undefined, jeton);
-            const scanId = dernier.ok && dernier.json && dernier.json[0] && dernier.json[0].scan_id;
-            const lignes = scanId ? await dbLire(`/rest/v1/guildes_classements?select=guilde,classement,rang,valeurs&scan_id=eq.${scanId}&order=id`, jeton) : null;
-            (lignes || []).forEach(l => {
-                const g = guildes.get(l.guilde) || { nom: l.guilde, stats: {} };
-                g.stats[l.classement] = { rang: l.rang ?? NaN, valeurs: l.valeurs || {} };
-                guildes.set(l.guilde, g);
-            });
-        }
+        // Dernier relevé de chaque guilde dans chaque classement (chaque scan n'en lit qu'un) ;
+        // ce qui a été lu pendant cette session reste prioritaire
+        const lignes = await dbLire('/rest/v1/guildes_classements_derniers?select=guilde,classement,rang,valeurs&order=guilde,classement', jeton);
+        (lignes || []).forEach(l => {
+            const g = guildes.get(l.guilde) || { nom: l.guilde, stats: {} };
+            if (!g.stats[l.classement]) g.stats[l.classement] = { rang: l.rang ?? NaN, valeurs: l.valeurs || {} };
+            guildes.set(l.guilde, g);
+        });
         log(`Base : ${joueurs.length} joueurs lus (${ajoutes} ajoutés à la liste), ${guildes.size} guildes.`);
         setStatus(`Base : ${joueurs.length} joueur(s) chargé(s).`, 'ok');
         updateModalUI();
@@ -371,10 +363,6 @@
     const tabKey = (tab) => tab.getAttribute('data-mention-channel') || tabLabel(tab);
     const isIronTab = (tab) => /ironcow/i.test(tabKey(tab) + ' ' + tabLabel(tab));
 
-    // Sources hors chat, cochables comme les canaux (clés mémorisées dans excludedChannels)
-    const SOURCE_LEADERBOARD = 'fabio:leaderboard', SOURCE_GUILDES = 'fabio:guildes';
-    const sourceActive = (key) => !(loadUI().excludedChannels || []).includes(key);
-
     // On mémorise les canaux exclus (et non les inclus) pour qu'un nouveau canal soit scanné par défaut
     function getSelectedTabs() {
         const excluded = loadUI().excludedChannels || [];
@@ -392,9 +380,7 @@
             </label>`;
         box.innerHTML = (tabs.length
             ? tabs.map(t => chan(tabKey(t), `${isIronTab(t) ? '🐄 ' : ''}${esc(tabLabel(t))}`, isIronTab(t) ? ' iron' : '')).join('')
-            : '<span class="mwi-r-chan-empty">Aucun canal détecté (chat pas encore chargé ?)</span>')
-            // Sources hors chat, parcourues après les canaux
-            + chan(SOURCE_LEADERBOARD, '🏆 Leaderboard') + chan(SOURCE_GUILDES, '🛡️ Guildes');
+            : '<span class="mwi-r-chan-empty">Aucun canal détecté (chat pas encore chargé ?)</span>');
         box.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.addEventListener('change', () => {
             const keys = Array.from(box.querySelectorAll('input[type="checkbox"]'))
                 .filter(c => !c.checked).map(c => c.dataset.key);
@@ -431,12 +417,14 @@
         return true;
     }
 
-    function scanVisibleMessages(scanLog) {
+    // dejaLus : messages déjà traités pendant ce scan (WeakSet), ignorés aux passages suivants
+    function scanVisibleMessages(scanLog, dejaLus) {
         // Utilise un sélecteur large et robuste basé sur la classe partielle
-        const messages = document.querySelectorAll(`[class*="${CHAT_MESSAGE_CLASS}"]`);
+        const messages = Array.from(document.querySelectorAll(`[class*="${CHAT_MESSAGE_CLASS}"]`)).filter(n => !dejaLus.has(n));
         let countNew = 0;
 
         messages.forEach(node => {
+            dejaLus.add(node);
             // 1) Chemin rapide et fiable : l'expéditeur est le premier CharacterName du message
             const nameEl = node.querySelector('[class*="CharacterName_name"][data-name]');
             if (nameEl) {
@@ -506,6 +494,7 @@
         return { countNew, total: messages.length };
     }
 
+    // « Scanner le chat » : lecture unique de chaque onglet de chat coché, envoyée à la base comme un scan
     window.mwiScanChat = async function() {
         if (!estRh()) { setStatus('Scan réservé aux comptes RH.', 'warn'); return; }
         if (isProcessing || isScanning) {
@@ -516,24 +505,19 @@
         renderChannels();
         const allTabs = getChatTabs();
         const tabs = getSelectedTabs();
-        const scanBtn = document.getElementById('mwi-btn-scan');
-        const processBtn = document.getElementById('mwi-btn-process');
-
-        const avecLb = sourceActive(SOURCE_LEADERBOARD) || sourceActive(SOURCE_GUILDES);
-        if (allTabs.length === 0 && !avecLb) {
+        if (allTabs.length === 0) {
             setStatus('Aucun onglet de chat trouvé.', 'warn');
             return;
         }
 
         isScanning = true;
-        if (scanBtn) { scanBtn.disabled = true; scanBtn.textContent = 'Scan en cours...'; }
-        if (processBtn) processBtn.disabled = true;
+        majBoutonsScan();
+        const scanBtn = document.getElementById('mwi-btn-scan');
+        if (scanBtn) scanBtn.textContent = 'Scan en cours...';
 
         const activeTab = allTabs.find(t => t.getAttribute('aria-selected') === 'true') || tabs[0];
-        let countNew = 0;
-        let totalMessages = 0;
-        let leaderboard = 0, guildCats = 0;
-        const scanLog = [];
+        let countNew = 0, totalMessages = 0;
+        const scanLog = [], dejaLus = new WeakSet();
         const debut = new Date().toISOString();
 
         try {
@@ -545,7 +529,7 @@
                 await sleep(TAB_SWITCH_WAIT_MS);
 
                 const before = scanLog.length;
-                const result = scanVisibleMessages(scanLog);
+                const result = scanVisibleMessages(scanLog, dejaLus);
                 for (let i = before; i < scanLog.length; i++) scanLog[i].onglet = label;
 
                 countNew += result.countNew;
@@ -553,39 +537,127 @@
             }
             if (activeTab) activeTab.click();
             await sleep(50);
-
-            // Puis le leaderboard (joueurs classés et/ou classements de guildes, selon les cases cochées)
-            if (avecLb) {
-                const spamWatch = startSpamWatch();
-                try {
-                    const lb = await scanLeaderboard(scanLog);
-                    countNew += lb.countNew;
-                    leaderboard = lb.classements;
-                    guildCats = lb.guildCats || 0;
-                } catch (e) {
-                    log('Erreur pendant le scan du leaderboard :', e);
-                } finally {
-                    spamWatch.disconnect();
-                }
-            }
         } finally {
             isScanning = false;
-            if (scanBtn) { scanBtn.disabled = false; scanBtn.textContent = '1. Scanner'; }
-            if (processBtn) processBtn.disabled = false;
+            if (scanBtn) scanBtn.textContent = '1. Scanner le chat';
+            majBoutonsScan();
         }
 
         log(`${countNew} nouveaux joueurs mis en file d'attente (${recrues.size} au total).`);
-        dbScan({ debut, onglets: tabs.map(tabLabel), totalMessages, countNew, leaderboard, guildCats, scanLog });
+        dbScan({ debut, onglets: tabs.map(tabLabel), totalMessages, countNew, classements: [], guildesLues: [], scanLog });
         console.table(scanLog.filter(e => e.resultat.startsWith('ignoré')));
-        setStatus(`Scan terminé (${tabs.length} onglets de chat, ${leaderboard} classements, ${guildes.size} guildes) : ${countNew} nouveau(x) joueur(s).`,
-            (leaderboard || !sourceActive(SOURCE_LEADERBOARD)) && (guildCats || !sourceActive(SOURCE_GUILDES)) ? 'ok' : 'warn');
+        setStatus(`Scan du chat terminé (${tabs.length} onglets) : ${countNew} nouveau(x) joueur(s).`, 'ok');
         updateModalUI();
-        if (document.getElementById('mwi-tracker-modal').dataset.view === 'guilds') renderGuildView();
     };
 
+    // Boutons de scan et de vérification selon l'opération en cours
+    function majBoutonsScan() {
+        const chat = document.getElementById('mwi-btn-scan'), lb = document.getElementById('mwi-btn-lb'),
+            verif = document.getElementById('mwi-btn-process');
+        if (chat) chat.disabled = isScanning || isProcessing;
+        if (lb) {
+            lb.disabled = !scanLb && (isScanning || isProcessing);
+            lb.textContent = scanLb ? '■ Arrêter le leaderboard' : '🏆 Leaderboard';
+            lb.classList.toggle('actif', !!scanLb);
+        }
+        if (verif && !isProcessing) verif.disabled = isScanning;
+    }
+
+    // « Leaderboard » : scan continu sans aucun clic. Le joueur ouvre lui-même chaque classement (skills ou guildes),
+    // le script lit celui qui est affiché dès qu'il change. « Arrêter » envoie tout à la base en un seul scan.
+    let scanLb = null;
+
+    function mwiScanLeaderboard() {
+        if (scanLb) { terminerScanLb(scanLb); return; }
+        if (!estRh()) { setStatus('Scan réservé aux comptes RH.', 'warn'); return; }
+        if (isProcessing || isScanning) {
+            setStatus('Patiente, une opération est déjà en cours.', 'warn');
+            return;
+        }
+        const sc = { debut: new Date().toISOString(), scanLog: [], countNew: 0, signature: '', classements: [],
+            guildesLues: new Map(), obs: null, minuterie: 0 };
+
+        // Surveillance de la page (hors modale) : au plus une relecture toutes les 400 ms. Pas de délai relancé à
+        // chaque modification : la page du jeu change sans arrêt (barres de progression) et la lecture n'aurait jamais lieu
+        sc.obs = new MutationObserver(muts => {
+            if (sc.minuterie) return;
+            const dehors = muts.some(m => {
+                const el = m.target.nodeType === 1 ? m.target : m.target.parentElement;
+                return el && !el.closest('#mwi-tracker-modal');
+            });
+            if (!dehors) return;
+            sc.minuterie = setTimeout(() => { sc.minuterie = 0; lectureLb(sc); }, 400);
+        });
+        sc.obs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'aria-selected'] });
+        // Page fermée pendant le scan : ce qui a été lu part dans la file d'envoi (envoyée au prochain chargement)
+        sc.surFermeture = () => terminerScanLb(sc);
+        window.addEventListener('pagehide', sc.surFermeture);
+        scanLb = sc;
+        isScanning = true;
+        majBoutonsScan();
+        lectureLb(sc);
+    }
+
+    // Signature du classement affiché : on ne relit le leaderboard que lorsqu'elle change
+    function signatureLeaderboard() {
+        const root = findLeaderboard();
+        if (!root) return '';
+        const box = panneauAffiche(root);
+        const noms = Array.from(box.querySelectorAll('[class*="CharacterName_name"][data-name]')).filter(e => !masque(e));
+        const t = noms.length ? null : readTable(root);
+        return [classementOuvert(root, 'Milking', 'Foraging'), classementOuvert(root, 'Buildings', 'Shrines'),
+            ['Standard', 'Ironcow', 'Guilds'].filter(n => { const o = tabEl(root, n); return o && selectionne(o); }).join(),
+            noms.length, noms.slice(0, 5).map(e => e.getAttribute('data-name')).join(),
+            t ? t.rows.length + ':' + t.rows.slice(0, 5).map(r => r.join(',')).join('|') : ''].join('#');
+    }
+
+    function lectureLb(sc) {
+        if (scanLb && scanLb !== sc) return;
+        const sig = signatureLeaderboard();
+        if (sig && sig !== sc.signature) {
+            sc.signature = sig;
+            try {
+                const lb = lireLeaderboardAffiche(sc.scanLog);
+                if (lb.type) {
+                    sc.countNew += lb.countNew;
+                    const nom = `${lb.type === 'guildes' ? 'guildes' : 'leaderboard'} : ${lb.classement}`;
+                    if (!sc.classements.includes(nom)) sc.classements.push(nom);
+                    lb.guildesLues.forEach(g => sc.guildesLues.set(g.guilde + '\n' + g.classement, g));
+                    updateModalUI();
+                    if (document.getElementById('mwi-tracker-modal').dataset.view === 'guilds') renderGuildView();
+                }
+            } catch (e) {
+                log('Erreur pendant la lecture du leaderboard :', e);
+            }
+        }
+        if (scanLb === sc) setStatus(`Leaderboard : ${sc.classements.length} classement(s) lu(s), ${sc.countNew} nouveau(x) joueur(s). `
+            + 'Ouvre les classements un par un, puis « Arrêter le leaderboard ».', 'ok');
+    }
+
+    function terminerScanLb(sc) {
+        if (!sc || scanLb !== sc) return;
+        lectureLb(sc); // dernière lecture de la page
+        scanLb = null;
+        sc.obs.disconnect();
+        clearTimeout(sc.minuterie);
+        window.removeEventListener('pagehide', sc.surFermeture);
+        isScanning = false;
+        majBoutonsScan();
+
+        log(`Leaderboard : ${sc.classements.length} classements lus, ${sc.countNew} nouveaux joueurs.`, sc.classements);
+        if (sc.classements.length) dbScan({ debut: sc.debut, onglets: [], totalMessages: 0, countNew: sc.countNew,
+            classements: sc.classements, guildesLues: Array.from(sc.guildesLues.values()), scanLog: sc.scanLog });
+        setStatus(`Leaderboard terminé : ${sc.classements.length} classement(s) lu(s), ${sc.countNew} nouveau(x) joueur(s).`,
+            sc.classements.length ? 'ok' : 'warn');
+        updateModalUI();
+        if (document.getElementById('mwi-tracker-modal').dataset.view === 'guilds') renderGuildView();
+    }
+
     // ---------------------------------------------------------------
-    // 1b. Scanner le leaderboard : les joueurs classés de chaque métier et skill de combat
+    // 1b. Leaderboard : lecture du classement affiché par le joueur
     // ---------------------------------------------------------------
+    // Règle du jeu : chaque onglet du leaderboard et des guildes demande des données au serveur. Le script ne les
+    // parcourt pas et ne clique rien : le joueur ouvre lui-même un classement, « Scanner » lit celui qui est affiché.
     const horsJeu = (e) => e.closest('#mwi-tracker-modal') || e.closest('[class*="NavigationBar_"]') || e.closest('[class*="Chat_"]');
     const txt = (e) => (e.textContent || '').trim();
     // Éléments visibles dont le texte est exactement celui demandé : le plus profond de chaque branche
@@ -599,7 +671,7 @@
     const tabEl = (root, text) => Array.from(root.querySelectorAll('[role="tab"], button')).find(e => txt(e) === text && visible(e))
         || exactEls(root, text)[0];
 
-    // Page Leaderboard du jeu (les pages non affichées restent dans le document, masquées) :
+    // Page Leaderboard du jeu, seulement si elle est affichée (les pages non affichées restent dans le document, masquées) :
     // le panneau nommé par le jeu, sinon le bloc autour de l'onglet "Guilds" qui contient aussi le tableau
     function findLeaderboard() {
         const panel = Array.from(document.querySelectorAll('[class*="LeaderboardPanel"]')).find(visible);
@@ -617,98 +689,69 @@
         return tous[0] || root;
     }
 
-    // Joueurs du classement affiché : composant CharacterName du jeu, sinon 2e colonne du tableau
+    // Joueurs du classement affiché : composant CharacterName du jeu (vide pour un classement de guildes)
     function leaderboardPlayers(root) {
         const box = panneauAffiche(root);
-        const els = Array.from(box.querySelectorAll('[class*="CharacterName_name"][data-name]')).filter(e => !masque(e));
-        if (els.length) return els.map(readCharacterName);
-        return Array.from(box.querySelectorAll('tr'), tr => tr.children[1] && !masque(tr) ? txt(tr.children[1]) : '')
-            .filter(n => n && n !== 'Name').map(username => ({ username, ironcow: false, color: '' }));
+        return Array.from(box.querySelectorAll('[class*="CharacterName_name"][data-name]')).filter(e => !masque(e)).map(readCharacterName);
     }
 
-    // Attend que l'instantané (snap) change par rapport à before puis se stabilise (le jeu charge après le clic)
-    async function waitStable(snap, before) {
-        let last = snap();
-        for (let k = 0; k < 30 && last === before; k++) { await sleep(POLL_MS); last = snap(); }
-        for (let k = 0; k < 10; k++) {
-            await sleep(80);
-            const now = snap();
-            if (now === last && now) break;
-            last = now;
+    // Onglet sélectionné : aria-selected, ou classe "selected" / "active" sur l'élément ou un parent proche
+    const selectionne = (el) => {
+        for (let e = el, k = 0; e && k < 3; e = e.parentElement, k++) {
+            if (e.getAttribute('aria-selected') === 'true' || /(?:^|[\s_-])(?:Mui-)?(?:selected|active)\b/i.test(e.className || '')) return true;
         }
-        return last;
+        return false;
+    };
+    // Nom du classement ouvert dans la liste qui contient les deux libellés donnés ('' si on ne le trouve pas)
+    function classementOuvert(root, a, b) {
+        const ea = exactEls(root, a)[0], eb = exactEls(root, b)[0];
+        const box = ea && eb && commonAncestor(ea, eb);
+        if (!box) return '';
+        const choix = Array.from(box.children).find(c => selectionne(c) || Array.from(c.querySelectorAll('*')).some(selectionne));
+        return choix ? txt(choix) : '';
     }
-    const waitLeaderboard = (root, before) => waitStable(() => leaderboardPlayers(root).map(c => c.username).join('|'), before);
 
-    // Clics du leaderboard soumis à l'anti-spam du jeu
-    const limiteurClassements = creerLimiteur('classements');
-    // Clique un onglet ou un classement du leaderboard puis attend son affichage (attendre)
-    const ouvrirClassement = (el, prefix, attendre) => limiteurClassements.executer(() => el.click(), attendre, prefix);
+    // Lit le classement affiché : joueurs d'un classement de skill, ou guildes d'un classement de l'onglet Guilds.
+    // Renvoie { type: 'joueurs' | 'guildes' | '', classement, countNew, guildesLues }
+    function lireLeaderboardAffiche(scanLog) {
+        const vide = { type: '', classement: '', countNew: 0, guildesLues: [] };
+        const root = findLeaderboard();
+        if (!root) { log('Leaderboard : page non affichée, rien à lire.'); return vide; }
+        const ongletGuildes = tabEl(root, 'Guilds');
+        const modeGuildes = !!ongletGuildes && selectionne(ongletGuildes);
 
-    // Se rend sur la page Leaderboard, parcourt chaque classement et ajoute les joueurs listés
-    async function scanLeaderboard(scanLog) {
-        let countNew = 0, classements = 0;
-        const pageAvant = document.querySelector('[class*="NavigationBar_active"]');
-        let root = findLeaderboard();
-        if (!root) {
-            const nav = document.querySelector('svg[aria-label="navigationBar.leaderboard"]');
-            if (!nav) { log('Leaderboard : lien introuvable dans le menu du jeu.'); return { countNew, classements }; }
-            (nav.closest('[class*="NavigationBar_navigationLink"]') || nav.parentElement).click();
-            for (let k = 0; k < 75 && !root; k++) { await sleep(POLL_MS); root = findLeaderboard(); }
+        const joueurs = modeGuildes ? [] : leaderboardPlayers(root);
+        if (joueurs.length) {
+            const ongletIc = tabEl(root, 'Ironcow');
+            const ironcow = !!ongletIc && selectionne(ongletIc);
+            const classement = classementOuvert(root, 'Milking', 'Foraging') || 'classement affiché';
+            let countNew = 0;
+            joueurs.forEach(c => {
+                if (!/^[a-zA-Z0-9_-]{2,30}$/.test(c.username || '')) return;
+                if (upsertRecruit(c.username, c.color, c.ironcow || ironcow, scanLog, `leaderboard ${classement}`, '')) countNew++;
+            });
+            log(`Leaderboard : ${joueurs.length} joueurs lus dans "${classement}"${ironcow ? ' (Ironcow)' : ''}.`);
+            return { type: 'joueurs', classement: `${ironcow ? 'Ironcow' : 'Standard'} · ${classement}`, countNew, guildesLues: [] };
         }
-        if (!root) {
-            log('Leaderboard : page introuvable après ouverture. Éléments "Leaderboard" du document :',
-                Array.from(document.querySelectorAll('[class*="Leaderboard"]'), e => `${e.className}${visible(e) ? '' : ' (masqué)'}`).slice(0, 12));
-            return { countNew, classements };
-        }
-        log('Leaderboard : page trouvée', root.className);
 
-        // Onglets du jeu selon le filtre de mode (jamais l'onglet des guildes)
-        const modes = !sourceActive(SOURCE_LEADERBOARD) ? []
-            : currentMode === 'standard' ? ['Standard'] : currentMode === 'ironcow' ? ['Ironcow'] : ['Standard', 'Ironcow'];
-        for (const mode of modes) {
-            const tab = tabEl(root, mode);
-            if (!tab) {
-                log(`Leaderboard : onglet "${mode}" introuvable. Onglets vus :`, Array.from(root.querySelectorAll('[role="tab"], button'), txt));
-                continue;
-            }
-            let before = await waitLeaderboard(root, null);
-            await ouvrirClassement(tab, `Leaderboard ${mode} :`, () => sleep(TAB_SWITCH_WAIT_MS));
-
-            // Liste des classements : le bloc qui contient à la fois "Milking" et "Foraging"
-            const m = exactEls(root, 'Milking')[0], f = exactEls(root, 'Foraging')[0];
-            const box = m && f && commonAncestor(m, f);
-            if (!box) {
-                log(`Leaderboard : liste des classements introuvable (${mode}). Onglets vus :`, Array.from(root.querySelectorAll('[role="tab"], button'), txt));
-                continue;
-            }
-            const labels = Array.from(box.children, txt).filter(Boolean);
-
-            for (const label of labels) {
-                const el = tabEl(box, label);
-                if (!el) continue;
-                setStatus(`Leaderboard ${mode} : ${label}...`, '');
-                const avant = before;
-                const o = await ouvrirClassement(el, `Leaderboard ${mode} : ${label}.`, () => waitLeaderboard(root, avant));
-                before = o.res;
-                if (o.spam) { log(`Leaderboard : "${label}" (${mode}) bloqué par l'anti-spam, classement ignoré.`); continue; }
-                const joueurs = leaderboardPlayers(root);
-                if (!joueurs.length) { log(`Leaderboard : aucun joueur lu dans "${label}" (${mode}).`); continue; }
-                classements++;
-                joueurs.forEach(c => {
-                    if (!/^[a-zA-Z0-9_-]{2,30}$/.test(c.username || '')) return;
-                    if (upsertRecruit(c.username, c.color, c.ironcow || mode === 'Ironcow', scanLog, `leaderboard ${label}`, '')) countNew++;
-                });
-                updateModalUI();
-            }
-        }
-        // Onglet des guildes : tous les classements de guildes, pour la comparaison
-        let guildCats = 0;
-        if (sourceActive(SOURCE_GUILDES)) try { guildCats = await scanGuilds(root); } catch (e) { log('Erreur pendant la lecture des guildes :', e); }
-
-        // Retour à la page du jeu affichée avant le scan
-        if (pageAvant && pageAvant.isConnected && !pageAvant.querySelector('svg[aria-label="navigationBar.leaderboard"]')) pageAvant.click();
-        return { countNew, classements, guildCats };
+        // Classement de guildes (Level, Buildings, Shrines...) : rang et colonnes de chaque guilde.
+        // Le jeu affiche notre propre guilde en première ligne avec son vrai rang, même hors du haut du classement.
+        const t = readTable(root);
+        if (!t || !t.rows.length) { log('Leaderboard : aucun joueur ni guilde lisible sur la page affichée.'); return vide; }
+        const classement = classementOuvert(root, 'Buildings', 'Shrines') || t.headers[2] || 'Classement';
+        const guildesLues = [];
+        t.rows.forEach(cells => {
+            const nom = cells[1];
+            if (!nom) return;
+            const g = guildes.get(nom) || { nom, stats: {} };
+            const valeurs = {};
+            t.headers.forEach((h, i) => { if (i >= 2 && h) valeurs[h] = cells[i] || ''; });
+            g.stats[classement] = { rang: num(cells[0]), valeurs };
+            guildes.set(nom, g);
+            guildesLues.push({ guilde: nom, classement, rang: Number.isFinite(num(cells[0])) ? num(cells[0]) : null, valeurs });
+        });
+        log(`Guildes : ${guildesLues.length} guildes lues dans "${classement}".`);
+        return { type: 'guildes', classement, countNew: 0, guildesLues };
     }
 
     // Nombre lu dans une cellule du jeu : "10 054 281", "1,2M", "513", "12.5"
@@ -732,50 +775,6 @@
             headers: Array.from(head.children, c => txt(c).replace(/[^\w\s/().%-]/g, '').trim()),
             rows: trs.filter(tr => tr !== head && tr.children.length >= 2).map(tr => Array.from(tr.children, txt))
         };
-    }
-
-    const waitTable = (root, before) => waitStable(() => {
-        const t = readTable(root);
-        return t ? t.rows.slice(0, 6).map(r => r.join(',')).join('|') : '';
-    }, before);
-
-    // Lit chaque classement de l'onglet "Guilds" (Level, Buildings, Shrines...) : rang et colonnes de chaque guilde.
-    // Le jeu affiche notre propre guilde en première ligne avec son vrai rang, même hors du haut du classement.
-    async function scanGuilds(root) {
-        const tab = tabEl(root, 'Guilds');
-        if (!tab) { log('Guildes : onglet "Guilds" introuvable.'); return 0; }
-        await ouvrirClassement(tab, 'Leaderboard guildes :', () => sleep(TAB_SWITCH_WAIT_MS));
-        const a = exactEls(root, 'Buildings')[0], b = exactEls(root, 'Shrines')[0];
-        const box = a && b && commonAncestor(a, b);
-        if (!box) {
-            log('Guildes : liste des classements introuvable. Onglets vus :', Array.from(root.querySelectorAll('[role="tab"], button'), txt));
-            return 0;
-        }
-        const labels = Array.from(box.children, txt).filter(Boolean);
-        let lus = 0, before = null;
-        for (const label of labels) {
-            const el = tabEl(box, label);
-            if (!el) continue;
-            setStatus(`Leaderboard guildes : ${label}...`, '');
-            const avant = before;
-            const o = await ouvrirClassement(el, `Leaderboard guildes : ${label}.`, () => waitTable(root, avant));
-            before = o.res;
-            if (o.spam) { log(`Guildes : "${label}" bloqué par l'anti-spam, classement ignoré.`); continue; }
-            const t = readTable(root);
-            if (!t || !t.rows.length) { log(`Guildes : aucune ligne lue dans "${label}".`, t ? t.headers : 'pas de tableau'); continue; }
-            lus++;
-            t.rows.forEach(cells => {
-                const nom = cells[1];
-                if (!nom) return;
-                const g = guildes.get(nom) || { nom, stats: {} };
-                const valeurs = {};
-                t.headers.forEach((h, i) => { if (i >= 2 && h) valeurs[h] = cells[i] || ''; });
-                g.stats[label] = { rang: num(cells[0]), valeurs };
-                guildes.set(nom, g);
-            });
-        }
-        log(`Guildes : ${guildes.size} guildes lues sur ${lus} classements.`);
-        return lus;
     }
 
     function newRecruit(nom, color = '') {
@@ -858,7 +857,7 @@
     // ---------------------------------------------------------------
     // 3. Interface & Styles
     // ---------------------------------------------------------------
-    const CSS = GM_getResourceText('FABIO_CSS');
+    const CSS = "#mwi-tracker-modal, #mwi-radar-launcher {\n    --r-bg: #0c0a0b;\n    --r-panel: #171113;\n    --r-panel-2: #24161a;\n    --r-border: #4a1f25;\n    --r-accent: #e0343c;\n    --r-accent-strong: #b3151d;\n    --r-gold: #e8b64c;\n    --r-text: #f4ece6;\n    --r-muted: #a08a8c;\n    --r-ok: #4ecb8d;\n    --r-warn: #f0a950;\n    --r-err: #ff5a5f;\n    font-family: \"Roboto\", \"Segoe UI\", sans-serif;\n    box-sizing: border-box;\n}\n#mwi-tracker-modal *, #mwi-radar-launcher * { box-sizing: border-box; }\n\n#mwi-tracker-modal {\n    position: fixed; top: 60px; right: 12px; z-index: 99999;\n    width: 340px; max-width: calc(100vw - 16px);\n    display: flex; flex-direction: column;\n    background: var(--r-bg); color: var(--r-text);\n    border: 1px solid var(--r-border); border-radius: 10px;\n    box-shadow: 0 8px 24px rgba(0,0,0,.55);\n    overflow: hidden; font-size: 13px;\n}\n#mwi-tracker-modal[data-mode=\"max\"] {\n    top: 5vh !important; left: 5vw !important; right: auto !important;\n    width: 90vw !important; height: 88vh !important;\n}\n#mwi-tracker-modal[data-mode=\"min\"] { height: auto !important; }\n#mwi-tracker-modal[data-sized=\"1\"] .mwi-r-list { max-height: none; }\n#mwi-tracker-modal[data-mode=\"min\"] .mwi-r-body { display: none; }\n#mwi-tracker-modal[data-mode=\"min\"] { width: 260px; }\n\n.mwi-r-head {\n    display: flex; align-items: center; gap: 8px;\n    padding: 8px 10px; cursor: move; user-select: none;\n    background: linear-gradient(180deg, var(--r-panel-2), var(--r-panel));\n    border-bottom: 2px solid var(--r-accent);\n}\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-head { cursor: default; }\n.mwi-r-title { flex: 1; font-size: 14px; font-weight: 700; color: var(--r-accent); letter-spacing: .3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n.mwi-r-logo { width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; display: block; }\n#mwi-radar-launcher { padding: 0; overflow: hidden; }\n#mwi-radar-launcher .mwi-r-logo { width: 100%; height: 100%; }\n.mwi-r-player { cursor: pointer; }\n.mwi-r-player:hover { text-decoration: underline; }\n.mwi-r-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }\n.mwi-r-profile {\n    visibility: hidden; font-weight: 700;\n    padding: 3px 12px; font-size: 12px; letter-spacing: .3px; cursor: pointer;\n    color: #fff; background: var(--r-accent);\n    border: 1px solid var(--r-accent); border-radius: 4px;\n    box-shadow: 0 0 8px rgba(224, 52, 60, .45);\n    transition: background .15s, box-shadow .15s, transform .1s;\n}\n.mwi-r-profile:hover { text-decoration: none; background: var(--r-accent-strong); box-shadow: 0 0 12px rgba(224, 52, 60, .75); transform: translateY(-1px); }\n.mwi-r-badge {\n    min-width: 22px; padding: 1px 7px; text-align: center;\n    font-size: 12px; font-weight: 700; color: var(--r-bg);\n    background: var(--r-ok); border-radius: 10px;\n}\n.mwi-r-ctrl { display: flex; gap: 4px; }\n.mwi-r-icon {\n    width: 24px; height: 24px; padding: 0; line-height: 1;\n    display: flex; align-items: center; justify-content: center;\n    color: var(--r-text); background: transparent;\n    border: 1px solid var(--r-border); border-radius: 5px;\n    cursor: pointer; font-size: 14px; transition: background .15s, border-color .15s;\n}\n.mwi-r-icon:hover { background: var(--r-panel-2); border-color: var(--r-accent); }\n.mwi-r-icon.close:hover { background: var(--r-err); border-color: var(--r-err); }\n\n.mwi-r-body { display: flex; flex-direction: column; gap: 10px; padding: 10px; flex: 1; min-height: 0; }\n\n.mwi-r-toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }\n.mwi-r-db[data-etat=\"off\"] { color: var(--r-muted); }\n.mwi-r-db[data-etat=\"on\"] { color: var(--r-ok); border-color: var(--r-ok); }\n.mwi-r-db[data-etat=\"attente\"] { color: var(--r-warn); border-color: var(--r-warn); }\n.mwi-r-dbpanel {\n    display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px;\n    background: var(--r-panel); border: 1px solid var(--r-accent); border-radius: 8px;\n}\n.mwi-r-dbpanel[hidden] { display: none; }\n.mwi-r-dbtitre { flex-basis: 100%; font-size: 11px; font-weight: 700; color: var(--r-gold); }\n.mwi-r-dbinfo { flex: 1; font-size: 12px; color: var(--r-ok); }\n.mwi-r-dbpanel[data-connecte=\"1\"] input, .mwi-r-dbpanel[data-connecte=\"1\"] #mwi-db-login,\n.mwi-r-dbpanel:not([data-connecte=\"1\"]) #mwi-db-sync, .mwi-r-dbpanel:not([data-connecte=\"1\"]) #mwi-db-logout { display: none; }\n/* Lecture seule (lecteur ou non connecté) : ni canaux, ni scan, ni vérification */\n#mwi-tracker-modal[data-role=\"lecteur\"] .mwi-r-chans-head,\n#mwi-tracker-modal[data-role=\"lecteur\"] .mwi-r-chans,\n#mwi-tracker-modal[data-role=\"lecteur\"] .mwi-r-progress,\n#mwi-tracker-modal[data-role=\"lecteur\"] .mwi-r-actions { display: none; }\n\n.mwi-r-chans-head { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--r-muted); }\n.mwi-r-chans { display: flex; flex-wrap: wrap; gap: 4px; }\n.mwi-r-chan {\n    display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;\n    font-size: 11px; cursor: pointer; user-select: none;\n    background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 10px;\n}\n.mwi-r-chan:has(input:checked) { border-color: var(--r-accent); color: var(--r-text); }\n.mwi-r-chan:not(:has(input:checked)) { color: var(--r-muted); opacity: .7; }\n.mwi-r-chan.iron:has(input:checked) { border-color: var(--r-warn); }\n.mwi-r-chan input { margin: 0; accent-color: var(--r-accent); }\n.mwi-r-chan-empty { font-size: 11px; font-style: italic; color: var(--r-muted); }\n.mwi-r-iron { font-size: 11px; font-weight: 700; color: var(--r-warn); margin-left: 4px; flex-shrink: 0; }\n.mwi-r-select {\n    flex: 0 1 150px; padding: 5px 8px; color: var(--r-text);\n    background: var(--r-panel); border: 1px solid var(--r-border);\n    border-radius: 5px; font-size: 12px; outline: none;\n}\n.mwi-r-select:focus { border-color: var(--r-accent); }\n\n.mwi-r-btn {\n    padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer;\n    color: var(--r-text); background: var(--r-panel-2);\n    border: 1px solid var(--r-border); border-radius: 5px;\n    transition: background .15s, border-color .15s, opacity .15s;\n}\n.mwi-r-btn:hover:not(:disabled) { border-color: var(--r-accent); background: #331a1f; }\n.mwi-r-btn.primary { color: #fff; background: var(--r-accent); border-color: var(--r-accent); }\n.mwi-r-btn.primary:hover:not(:disabled) { background: var(--r-accent-strong); }\n.mwi-r-btn:disabled { opacity: .55; cursor: not-allowed; }\n\n.mwi-r-list {\n    overflow-x: hidden; padding-right: 2px;\n    flex: 1; min-height: 120px; max-height: 320px; overflow-y: auto;\n    list-style: none; margin: 0; padding: 0;\n    display: grid; grid-template-columns: 1fr; gap: 6px; align-content: start;\n}\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-list {\n    max-height: none;\n    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));\n}\n.mwi-r-list::-webkit-scrollbar { width: 8px; }\n.mwi-r-list::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }\n\n.mwi-r-card {\n    padding: 8px 10px; background: var(--r-panel);\n    border: 1px solid var(--r-border); border-left: 3px solid var(--r-ok);\n    border-radius: 6px; min-width: 0;\n    transition: border-color .15s, background .15s;\n}\n.mwi-r-card.guild { border-left-color: var(--r-gold); }\n.mwi-r-card.fail { border-left-color: var(--r-err); }\n.mwi-r-card.pending { border-left-color: var(--r-muted); }\n.mwi-r-name { font-weight: 700; font-size: 14px; color: var(--r-text); display: flex; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; }\n.mwi-r-who { display: flex; align-items: center; min-width: 0; overflow: hidden; }\n.mwi-r-who .mwi-r-player { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.mwi-r-card:hover { background: var(--r-panel-2); border-color: var(--r-accent); }\n.mwi-r-tag { font-size: 11px; font-weight: 700; color: var(--r-muted); white-space: nowrap; }\n.mwi-r-card:not(.guild):not(.fail):not(.pending) .mwi-r-tag { color: var(--r-ok); }\n.mwi-r-card.fail .mwi-r-tag { color: var(--r-err); }\n.mwi-r-card.guild .mwi-r-tag { color: var(--r-gold); }\n.mwi-r-stats { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 5px; font-size: 12px; color: var(--r-muted); }\n.mwi-r-stats b { color: var(--r-text); font-weight: 600; }\n.mwi-r-sizes { display: flex; gap: 2px; padding: 2px; background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px; }\n.mwi-r-sizes .mwi-r-icon { border-color: transparent; color: var(--r-muted); }\n.mwi-r-sizes .mwi-r-icon.active { color: var(--r-accent); background: var(--r-panel-2); border-color: var(--r-accent); }\n.mwi-r-details { display: none; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 6px 0 0; font-size: 12px; }\n.mwi-r-details dt { color: var(--r-muted); }\n.mwi-r-details dd { margin: 0; color: var(--r-text); font-weight: 600; }\n\n/* Taille des cases : grandes = toutes les infos en liste, moyennes = bouton visible, petites = bouton au survol */\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-card { padding: 10px 12px; }\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-name { font-size: 15px; }\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-stats,\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-tag { display: none; }\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-details { display: grid; }\n#mwi-tracker-modal[data-size=\"large\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-profile,\n#mwi-tracker-modal[data-size=\"medium\"] .mwi-r-profile { visibility: visible; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card { padding: 4px 8px; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-name { font-size: 13px; align-items: center; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-stats { display: none; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-list { gap: 3px; }\n#mwi-tracker-modal[data-size=\"small\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card:hover .mwi-r-profile { visibility: visible; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card { border-left-width: 1px; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-tag { font-size: 0; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-tag::before {\n    content: ''; display: block; width: 8px; height: 8px; border-radius: 50%; background: currentColor;\n}\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card.pending .mwi-r-tag { color: var(--r-muted); }\n#mwi-tracker-modal[data-size=\"medium\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }\n.mwi-r-card[data-player] { cursor: pointer; }\n\n/* Fiche joueur */\n.mwi-r-pview { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 8px; }\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-pview { display: flex; }\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-list,\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-toolbar,\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-chans-head,\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-chans { display: none; }\n#mwi-tracker-modal[data-view=\"guilds\"] .mwi-r-list,\n#mwi-tracker-modal[data-view=\"guilds\"] .mwi-r-toolbar,\n#mwi-tracker-modal[data-view=\"guilds\"] .mwi-r-chans-head,\n#mwi-tracker-modal[data-view=\"guilds\"] .mwi-r-chans { display: none; }\n.mwi-r-phead { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--r-border); }\n.mwi-r-pname { flex: 1; min-width: 0; font-size: 17px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.mwi-r-pview .mwi-r-profile { visibility: visible; }\n.mwi-r-ptabs { display: flex; flex-wrap: wrap; gap: 4px; }\n.mwi-r-ptab {\n    padding: 4px 10px; font-size: 12px; font-weight: 700; cursor: pointer;\n    color: var(--r-muted); background: var(--r-panel);\n    border: 1px solid var(--r-border); border-radius: 14px;\n    transition: color .15s, border-color .15s, background .15s;\n}\n.mwi-r-ptab:hover { color: var(--r-text); border-color: var(--r-accent); }\n.mwi-r-ptab.active { color: #fff; background: var(--r-accent); border-color: var(--r-accent); }\n.mwi-r-pbody {\n    flex: 1; min-height: 140px; max-height: 360px; overflow-y: auto; padding: 10px 12px;\n    background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px;\n}\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-pbody,\n#mwi-tracker-modal[data-sized=\"1\"] .mwi-r-pbody { max-height: none; }\n.mwi-r-pbody::-webkit-scrollbar { width: 8px; }\n.mwi-r-pbody::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }\n.mwi-r-pgrid { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: 13px; }\n.mwi-r-pgrid dt { color: var(--r-muted); }\n.mwi-r-pgrid dd { margin: 0; font-weight: 700; }\n.mwi-r-pstat.free { color: var(--r-ok); }\n.mwi-r-pstat.guild { color: var(--r-gold); }\n.mwi-r-pstat.fail { color: var(--r-err); }\n.mwi-r-pstat.pending { color: var(--r-muted); }\n.mwi-r-ptab:focus { outline: none; }\n.mwi-r-rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 0 20px; margin: 0; font-size: 13px; }\n.mwi-r-row {\n    display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px;\n    padding: 6px 2px; border-bottom: 1px solid rgba(255,255,255,.06);\n}\n.mwi-r-row dt { color: var(--r-muted); }\n.mwi-r-row dd { margin: 0; font-weight: 700; color: var(--r-text); text-align: right; font-variant-numeric: tabular-nums; }\n.mwi-r-row.done dd { color: var(--r-ok); }\n.mwi-r-bar { flex-basis: 100%; height: 4px; background: var(--r-bg); border-radius: 2px; overflow: hidden; }\n.mwi-r-bar > div { height: 100%; background: var(--r-accent); border-radius: 2px; }\n.mwi-r-row.done .mwi-r-bar > div { background: var(--r-ok); }\n.mwi-r-solos { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 12px; }\n.mwi-r-solo-label { color: var(--r-muted); }\n.mwi-r-solo { padding: 2px 10px; font-weight: 700; color: var(--r-text); background: var(--r-bg); border: 1px solid var(--r-border); border-radius: 12px; }\n.mwi-r-solo-label ~ .mwi-r-solo { font-weight: 400; color: var(--r-muted); border-style: dashed; }\n/* Cases du profil : icône au centre, textes et badges dans les coins */\n.mwi-r-tiles {\n    --tile: 58px;\n    display: grid; grid-template-columns: repeat(auto-fill, var(--tile)); grid-auto-rows: var(--tile);\n    gap: 6px; margin-top: 10px; justify-content: start; overflow-x: auto; padding-bottom: 2px;\n}\n.mwi-r-tiles:first-child { margin-top: 0; }\n.mwi-r-tiles.placed { grid-template-columns: repeat(var(--cols), var(--tile)); }\n.mwi-r-tile {\n    position: relative; width: var(--tile); height: var(--tile);\n    display: flex; align-items: center; justify-content: center;\n    background: linear-gradient(160deg, var(--r-panel-2), var(--r-bg));\n    border: 1px solid var(--r-border); border-radius: 6px;\n    transition: border-color .15s, box-shadow .15s;\n}\n.mwi-r-tile:hover { border-color: var(--r-accent); box-shadow: 0 0 8px rgba(224, 52, 60, .35); }\n.mwi-r-tico { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; }\n.mwi-r-tico svg, .mwi-r-tico img { width: 40px; height: 40px; object-fit: contain; }\n.mwi-r-tt {\n    position: absolute; max-width: calc(100% - 4px); overflow: hidden; white-space: nowrap;\n    font-size: 11px; font-weight: 700; line-height: 1; color: var(--r-text);\n    text-shadow: 0 0 3px #000, 0 0 3px #000;\n}\n.mwi-r-tt.tl { top: 3px; left: 3px; }\n.mwi-r-tt.tc { top: 3px; left: 50%; transform: translateX(-50%); }\n.mwi-r-tt.tr { top: 3px; right: 3px; }\n.mwi-r-tt.bl { bottom: 3px; left: 3px; }\n.mwi-r-tt.bc { bottom: 3px; left: 50%; transform: translateX(-50%); }\n.mwi-r-tt.br { bottom: 3px; right: 3px; }\n.mwi-r-tt.plus { color: var(--r-warn); }\n.mwi-r-tt.num { color: var(--r-ok); }\n.mwi-r-tb { position: absolute; width: 16px; height: 16px; }\n.mwi-r-tb svg, .mwi-r-tb img { width: 16px; height: 16px; }\n.mwi-r-tb.tl { top: 2px; left: 2px; }\n.mwi-r-tb.tr { top: 2px; right: 2px; }\n.mwi-r-tb.bl { bottom: 2px; left: 2px; }\n.mwi-r-tb.br { bottom: 2px; right: 2px; }\n.mwi-r-tb.tc { top: 2px; left: calc(50% - 8px); }\n.mwi-r-tb.bc { bottom: 2px; left: calc(50% - 8px); }\n.mwi-r-tile.vide { background: none; border-style: dashed; opacity: .75; }\n.mwi-r-tname { padding: 2px; font-size: 9px; line-height: 1.15; text-align: center; color: var(--r-muted); overflow: hidden; }\n.mwi-r-sub { margin: 14px 0 6px; font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--r-muted); }\n.mwi-r-sub:first-child { margin-top: 0; }\n.mwi-r-psec .mwi-r-sub + .mwi-r-tiles, .mwi-r-sub + .mwi-r-tiles { margin-top: 0; }\n.mwi-r-pempty { margin: 10px 0 0; font-style: italic; color: var(--r-muted); font-size: 12px; }\n\n/* Petite fenêtre : un onglet à la fois. Modale large : toutes les sections répertoriées en colonnes, sans onglets */\n.mwi-r-pview { container-type: inline-size; container-name: mwi-pview; }\n.mwi-r-psec:not(.active) { display: none; }\n.mwi-r-psec-title { display: none; }\n@container mwi-pview (min-width: 880px) {\n    .mwi-r-ptabs { display: none; }\n    .mwi-r-pbody { padding: 0 4px 0 0; background: none; border: 0; border-radius: 0; }\n    .mwi-r-psecs { columns: 420px; column-gap: 12px; }\n    .mwi-r-psec, .mwi-r-psec:not(.active) {\n        display: block; break-inside: avoid; margin: 0 0 12px; padding: 12px 14px 14px;\n        background: linear-gradient(180deg, var(--r-panel-2), var(--r-panel) 46px);\n        border: 1px solid var(--r-border); border-top: 2px solid var(--r-accent); border-radius: 8px;\n        box-shadow: 0 2px 10px rgba(0,0,0,.35);\n    }\n    .mwi-r-psec-title {\n        display: flex; align-items: center; gap: 8px; margin: 0 0 12px;\n        font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--r-gold);\n    }\n    .mwi-r-psec-title::after { content: ''; flex: 1; height: 1px; background: var(--r-border); }\n    .mwi-r-psec .mwi-r-rows { grid-template-columns: 1fr; }\n    .mwi-r-psec .mwi-r-tiles { justify-content: center; }\n}\n/* Très grande modale : trois colonnes indépendantes (Skills | Résumé, Overview | Equipment), le reste réparti en dessous */\n.mwi-r-pcol { display: contents; }\n@container mwi-pview (min-width: 1200px) {\n    .mwi-r-psecs {\n        columns: auto; display: grid; gap: 12px; align-items: start;\n        grid-template-columns: minmax(0, .8fr) minmax(0, 1fr) minmax(400px, 1.1fr);\n    }\n    .mwi-r-pcol { display: flex; flex-direction: column; gap: 12px; min-width: 0; }\n    .mwi-r-psec, .mwi-r-psec:not(.active) { margin: 0; min-width: 0; }\n    /* Cases plus grandes, réparties sur toute la largeur de la section */\n    .mwi-r-psec .mwi-r-tiles {\n        --tile: clamp(58px, 4cqw, 72px); gap: 12px 8px; margin-top: 12px;\n        grid-template-columns: repeat(auto-fill, minmax(calc(var(--tile) + 14px), 1fr));\n        justify-content: stretch; justify-items: center;\n    }\n    .mwi-r-psec .mwi-r-tiles.placed { grid-template-columns: repeat(var(--cols), minmax(var(--tile), 1fr)); }\n    .mwi-r-psec .mwi-r-tico, .mwi-r-psec .mwi-r-tico svg, .mwi-r-psec .mwi-r-tico img { width: calc(var(--tile) - 18px); height: calc(var(--tile) - 18px); }\n    .mwi-r-psec .mwi-r-tt { font-size: 12px; }\n}\n\n/* Comparaison des guildes */\n.mwi-r-gview { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 8px; }\n#mwi-tracker-modal[data-view=\"guilds\"] .mwi-r-gview { display: flex; }\n.mwi-r-gcount { margin-left: 8px; font-size: 12px; font-weight: 400; color: var(--r-muted); }\n.mwi-r-gbody { flex: 1; min-height: 140px; max-height: 360px; overflow: auto; padding-right: 4px; }\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-gbody,\n#mwi-tracker-modal[data-sized=\"1\"] .mwi-r-gbody { max-height: none; }\n.mwi-r-gbody::-webkit-scrollbar { width: 8px; height: 8px; }\n.mwi-r-gbody::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }\n.mwi-r-gcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin-bottom: 12px; }\n.mwi-r-gcard {\n    padding: 10px 12px; cursor: pointer;\n    background: linear-gradient(180deg, var(--r-panel-2), var(--r-panel) 46px);\n    border: 1px solid var(--r-border); border-top: 2px solid var(--r-border); border-radius: 8px;\n    transition: border-color .15s;\n}\n.mwi-r-gcard:hover, .mwi-r-gcard.active { border-color: var(--r-accent); }\n.mwi-r-gcard h4 { margin: 0 0 4px; font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--r-gold); }\n.mwi-r-grank { font-size: 24px; font-weight: 700; line-height: 1.2; color: var(--r-text); }\n.mwi-r-gcard .mwi-r-rows { grid-template-columns: 1fr; font-size: 12px; }\n.mwi-r-rows + .mwi-r-gverdict { margin-top: 10px; }\n.mwi-r-gverdict { margin: 0 0 6px; padding: 5px 10px; font-size: 12px; font-weight: 700; color: var(--r-muted); background: var(--r-bg); border-left: 3px solid var(--r-muted); border-radius: 4px; }\n.mwi-r-gverdict.mieux { color: var(--r-err); border-left-color: var(--r-err); }\n.mwi-r-gverdict.moins { color: var(--r-ok); border-left-color: var(--r-ok); }\n.mwi-r-gverdict.egal { color: var(--r-warn); border-left-color: var(--r-warn); }\n.mwi-r-gtable { width: 100%; border-collapse: collapse; font-size: 12px; }\n.mwi-r-gtable th {\n    position: sticky; top: 0; z-index: 1; padding: 6px 8px; text-align: left; white-space: nowrap;\n    color: var(--r-muted); background: var(--r-panel-2); border-bottom: 2px solid var(--r-border);\n}\n.mwi-r-gtable th[data-action] { cursor: pointer; }\n.mwi-r-gtable th[data-action]:hover { color: var(--r-text); }\n.mwi-r-gtable th.active { color: var(--r-accent); border-bottom-color: var(--r-accent); }\n.mwi-r-gtable td { padding: 5px 8px; white-space: nowrap; border-bottom: 1px solid rgba(255,255,255,.05); }\n.mwi-r-gtable .n { text-align: right; font-variant-numeric: tabular-nums; }\n.mwi-r-gtable small { margin-left: 4px; color: var(--r-muted); }\n.mwi-r-gtable tbody tr:hover { background: var(--r-panel); }\n.mwi-r-gtable tr.moi td { font-weight: 700; color: var(--r-gold); background: var(--r-panel-2); border-bottom: 1px solid var(--r-accent); }\n\n.mwi-r-empty { padding: 18px 8px; text-align: center; font-style: italic; color: var(--r-muted); background: var(--r-panel); border: 1px dashed var(--r-border); border-radius: 6px; }\n\n.mwi-r-progress { height: 4px; background: var(--r-panel); border-radius: 2px; overflow: hidden; display: none; }\n.mwi-r-progress > div { height: 100%; width: 0; background: var(--r-accent); transition: width .2s; }\n\n.mwi-r-actions { display: flex; gap: 8px; }\n.mwi-r-actions { flex-wrap: wrap; }\n.mwi-r-actions .mwi-r-btn { flex: 1 1 0; white-space: nowrap; }\n.mwi-r-btn.actif { color: #fff; background: var(--r-gold); border-color: var(--r-gold); color: var(--r-bg); }\n\n.mwi-r-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 11px; color: var(--r-muted); }\n#mwi-status.ok { color: var(--r-ok); }\n#mwi-status.warn { color: var(--r-warn); }\n#mwi-status.err { color: var(--r-err); }\n\n#mwi-radar-launcher {\n    position: fixed; bottom: 16px; right: 16px; z-index: 99998; display: none;\n    width: 44px; height: 44px; align-items: center; justify-content: center;\n    font-size: 20px; cursor: pointer; color: var(--r-accent);\n    background: var(--r-panel); border: 1px solid var(--r-border);\n    border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,.5);\n}\n#mwi-radar-launcher:hover { border-color: var(--r-accent); background: var(--r-panel-2); }\n\n/* Voyant en ligne / hors ligne */\n.mwi-r-dot { display: inline-block; flex-shrink: 0; width: 8px; height: 8px; margin-right: 6px; vertical-align: middle; border-radius: 50%; background: var(--r-muted); opacity: .5; }\n.mwi-r-dot.on { background: var(--r-ok); opacity: 1; box-shadow: 0 0 6px var(--r-ok); }\n.mwi-r-dot.off { background: var(--r-err); opacity: .8; }\n.mwi-r-dot.masque { background: transparent; border: 1px solid var(--r-muted); }\n\n/* Recherche de joueur avec suggestions */\n.mwi-r-search { position: relative; flex: 1 1 160px; min-width: 140px; }\n.mwi-r-search .mwi-r-select { width: 100%; }\n.mwi-r-sugg {\n    display: none; position: absolute; top: calc(100% + 2px); left: 0; right: 0; z-index: 5;\n    max-height: 260px; overflow-y: auto; margin: 0; padding: 4px 0; list-style: none;\n    background: var(--r-panel); border: 1px solid var(--r-accent); border-radius: 6px;\n    box-shadow: 0 6px 16px rgba(0,0,0,.6); min-width: 220px;\n}\n.mwi-r-sugg.open { display: block; }\n.mwi-r-sugg li { display: flex; align-items: center; gap: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; white-space: nowrap; }\n.mwi-r-sugg li .nom { overflow: hidden; text-overflow: ellipsis; }\n.mwi-r-sugg li b { color: var(--r-accent); }\n.mwi-r-sugg li.actif, .mwi-r-sugg li:hover { background: var(--r-panel-2); }\n.mwi-r-sugg li.vide { cursor: default; font-style: italic; color: var(--r-muted); }\n.mwi-r-sugg-tag { margin-left: auto; padding-left: 8px; font-size: 11px; color: var(--r-muted); overflow: hidden; text-overflow: ellipsis; }\n.mwi-r-sugg-tag.free { color: var(--r-ok); }\n.mwi-r-sugg-tag.guild { color: var(--r-gold); }\n.mwi-r-sugg-tag.fail { color: var(--r-err); }\n"; // fabio-rh.css, inséré par tools/integrer-css.py
 
     function loadUI() {
         try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch (e) { return {}; }
@@ -1041,7 +1040,8 @@
                 <div class="mwi-r-gview" id="mwi-guild-view"></div>
                 <div class="mwi-r-progress" id="mwi-progress"><div id="mwi-progress-bar"></div></div>
                 <div class="mwi-r-actions">
-                    <button class="mwi-r-btn" id="mwi-btn-scan" title="Scanne le chat puis le leaderboard du jeu">1. Scanner</button>
+                    <button class="mwi-r-btn" id="mwi-btn-scan" title="Lit une fois chaque onglet de chat coché">1. Scanner le chat</button>
+                    <button class="mwi-r-btn" id="mwi-btn-lb" title="Surveille le leaderboard : ouvre les classements un par un, puis arrête">🏆 Leaderboard</button>
                     <button class="mwi-r-btn primary" id="mwi-btn-process" title="Prépare /profile dans le chat pour chaque joueur : appuie sur Entrée pour chacun">2. Vérifier Profils</button>
                 </div>
                 <div class="mwi-r-foot">
@@ -1071,6 +1071,7 @@
         setVisible(saved.visible !== false);
 
         document.getElementById('mwi-btn-scan').addEventListener('click', window.mwiScanChat);
+        document.getElementById('mwi-btn-lb').addEventListener('click', mwiScanLeaderboard);
         document.getElementById('mwi-btn-process').addEventListener('click', processUnverifiedProfiles);
         document.getElementById('mwi-btn-close').addEventListener('click', () => setVisible(false));
         launcher.addEventListener('click', () => setVisible(true));
@@ -1246,8 +1247,9 @@
     async function verifierUn(p) {
         if (isProcessing || isScanning || !estRh()) return;
         isProcessing = true;
-        const btn = document.getElementById('mwi-btn-process'), scanBtn = document.getElementById('mwi-btn-scan');
-        btn.disabled = scanBtn.disabled = true;
+        const btn = document.getElementById('mwi-btn-process');
+        btn.disabled = true;
+        majBoutonsScan();
         const spamWatch = startSpamWatch();
         let chatInput = null;
         try {
@@ -1268,7 +1270,8 @@
             spamWatch.disconnect();
             isProcessing = false;
             enAttente = null;
-            btn.disabled = scanBtn.disabled = false;
+            btn.disabled = false;
+            majBoutonsScan();
             updateModalUI();
         }
         // Fiche d'un autre joueur ouverte pendant l'attente : on prépare la sienne
@@ -1541,7 +1544,7 @@
         const cats = [];
         guildes.forEach(g => Object.keys(g.stats).forEach(c => { if (!cats.includes(c)) cats.push(c); }));
         if (!cats.length) {
-            view.innerHTML = head + '<p class="mwi-r-pempty">Aucune guilde lue pour le moment : clique sur « 1. Scanner », qui parcourt aussi l\'onglet Guilds du leaderboard.</p>';
+            view.innerHTML = head + '<p class="mwi-r-pempty">Aucune guilde lue pour le moment : lance « 🏆 Leaderboard » puis ouvre les classements de l\'onglet Guilds.</p>';
             return;
         }
         if (!cats.includes(guildSort)) guildSort = cats[0];
@@ -1591,7 +1594,7 @@
     function guildCompareHtml(nomGuilde) {
         if (!nomGuilde || nomGuilde === MA_GUILDE) return '';
         const titre = `<h4 class="mwi-r-sub">${esc(nomGuilde)} face à ${esc(MA_GUILDE)}</h4>`;
-        if (!guildes.size) return titre + '<p class="mwi-r-pempty">Classements des guildes pas encore lus : clique sur « 1. Scanner ».</p>';
+        if (!guildes.size) return titre + '<p class="mwi-r-pempty">Classements des guildes pas encore lus : lance « 🏆 Leaderboard » et ouvre l\'onglet Guilds.</p>';
         const g = guildes.get(nomGuilde), moi = guildes.get(MA_GUILDE);
         if (!moi) return titre + `<p class="mwi-r-pempty">${esc(MA_GUILDE)} absente des classements lus : comparaison impossible.</p>`;
         const rang = guildRang;
@@ -2147,12 +2150,11 @@
 
         isProcessing = true;
         const btn = document.getElementById('mwi-btn-process');
-        const scanBtn = document.getElementById('mwi-btn-scan');
         const progress = document.getElementById('mwi-progress');
         const bar = document.getElementById('mwi-progress-bar');
 
         arretDemande = false;
-        scanBtn.disabled = true;
+        majBoutonsScan();
         btn.textContent = '■ Arrêter';
         btn.title = 'Arrêter la vérification après le profil en cours';
         progress.style.display = 'block';
@@ -2198,7 +2200,7 @@
             enAttente = null;
             btn.disabled = false;
             btn.title = 'Prépare /profile dans le chat pour chaque joueur : appuie sur Entrée pour chacun';
-            scanBtn.disabled = false;
+            majBoutonsScan();
             btn.textContent = '2. Vérifier Profils';
             progress.style.display = 'none';
             updateModalUI();
