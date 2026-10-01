@@ -17,7 +17,7 @@ function extraire(nom) {
 }
 
 const noms = ['esc', 'num', 'parseProfile', 'hridName', 'pretty', 'nb', 'TRIGGER_FR', 'trig', 'triggersText',
-    'isValue', 'isLabel', 'cleanLine', 'rowsToHtml', 'linesToHtml', 'niveauxProfil', 'meilleurSkill'];
+    'isValue', 'isLabel', 'cleanLine', 'rowsToHtml', 'linesToHtml', 'niveauxProfil', 'meilleurSkill', 'TENUES', 'equipementProfil', 'equipementMetier', 'meilleurMetier'];
 // SKILLS tient sur deux lignes : repris tel quel
 const skills = src.match(/^    const SKILLS = \[[\s\S]*?\];$/m)[0];
 const f = new Function(skills + '\n' + noms.map(extraire).join('\n') + `\nreturn { ${noms.join(', ')} };`)();
@@ -80,6 +80,29 @@ test('meilleurSkill : plus haut niveau, égalité dans l\'ordre du jeu', () => {
     assert.deepStrictEqual(f.meilleurSkill({ milking: 106, brewing: 135, magic: 120 }), { skill: 'brewing', niveau: 135 });
     assert.deepStrictEqual(f.meilleurSkill({ melee: 90, foraging: 90 }), { skill: 'foraging', niveau: 90 });
     assert.strictEqual(f.meilleurSkill(null), null);
+});
+
+const EQ = { body: 'tailors_top+10', legs: 'tailors_bottoms+10', charm: 'master_tailoring_charm',
+    tailoring_tool: 'celestial_needle+10', cooking_tool: 'celestial_spatula+7', brewing_tool: 'holy_pot+5' };
+test('equipementProfil : outils, tenue et charme, rien si masqué', () => {
+    const brut = { wearableItemMap: {
+        a: { itemLocationHrid: '/item_locations/brewing_tool', itemHrid: '/items/celestial_pot', enhancementLevel: 8 },
+        b: { itemLocationHrid: '/item_locations/body', itemHrid: '/items/brewers_top', enhancementLevel: 0 },
+        c: { itemLocationHrid: '/item_locations/head', itemHrid: '/items/red_culinary_hat', enhancementLevel: 0 } } };
+    assert.deepStrictEqual(f.equipementProfil(brut), { brewing_tool: 'celestial_pot+8', body: 'brewers_top' });
+    assert.strictEqual(f.equipementProfil({ ...brut, hideWearableItems: true }), null);
+});
+test('equipementMetier : celestial, tenue, charme et score', () => {
+    assert.deepStrictEqual(f.equipementMetier(EQ, 'tailoring'), { celeste: true, plus: 10, haut: true, bas: true, charme: 'master', score: 5 });
+    assert.deepStrictEqual(f.equipementMetier(EQ, 'cooking'), { celeste: true, plus: 7, haut: false, bas: false, charme: '', score: 2 });
+    assert.strictEqual(f.equipementMetier(EQ, 'brewing').score, 0);
+    assert.strictEqual(f.equipementMetier(EQ, 'melee').score, 0);
+});
+test('meilleurMetier : le mieux équipé, puis le niveau', () => {
+    assert.strictEqual(f.meilleurMetier({ tailoring: 100, cooking: 130 }, EQ).skill, 'tailoring');
+    const deux = { cooking_tool: 'celestial_spatula+5', brewing_tool: 'celestial_pot+5' };
+    assert.strictEqual(f.meilleurMetier({ cooking: 100, brewing: 120 }, deux).skill, 'brewing');
+    assert.strictEqual(f.meilleurMetier({ cooking: 100 }, null), null);
 });
 
 console.log(`${ok} test(s) réussi(s), ${ko} échec(s).`);

@@ -173,6 +173,9 @@
 }
 .mwi-r-lvl i { font-style: normal; }
 .mwi-r-lvl b { color: var(--r-gold); }
+/* Équipement du métier dans la pastille : ✨ outil celestial, 👕 haut, 👖 bas, 🔮 charme */
+.mwi-r-lvl .eq { margin-left: 5px; padding-left: 5px; border-left: 1px solid var(--r-border); color: var(--r-warn); font-weight: 700; letter-spacing: 1px; }
+.mwi-r-details .eq { color: var(--r-warn); letter-spacing: 1px; }
 #mwi-tracker-modal[data-size="small"] .mwi-r-lvl i { display: none; }
 
 /* Liste + barre des skills à gauche, comme dans le jeu (icônes seules quand la modale est étroite) */
