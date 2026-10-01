@@ -1,7 +1,7 @@
 // Fichier généré par tools/build-console.js - ne pas modifier à la main.
 // Coller tout le contenu dans la console du jeu (F12) pour tester sans Tampermonkey.
-// Version : 59a2db5 - Rôles rh / lecteur : scan et vérification réservés aux rh, consultation seule pour les lecteurs
-console.log('[Fabio RH] console-test :', "59a2db5 - Rôles rh / lecteur : scan et vérification réservés aux rh, consultation seule pour les lecteurs");
+// Version : c6e5741 - Retour à un seul script : scan et vérification affichés selon le rôle rh
+console.log('[Fabio RH] console-test :', "c6e5741 - Retour à un seul script : scan et vérification affichés selon le rôle rh");
 (function() {
     'use strict';
 
