@@ -141,6 +141,7 @@
         if (!r.ok) return (r.json && (r.json.msg || r.json.error_description || r.json.message)) || `erreur ${r.status}`;
         garderSession(r.json);
         dbVider();
+        dbCharger();
         return '';
     }
 
@@ -241,6 +242,73 @@
             entrees: scanLog.map(e => ({ pseudo: String(e.pseudo || '-'), resultat: e.resultat, onglet: e.onglet || null, brut: e.brut || null })),
             guildes: lesGuildes
         });
+    }
+
+    // Lecture paginée d'une table (PostgREST renvoie 1000 lignes au plus par requête)
+    async function dbLire(chemin, jeton) {
+        const lignes = [];
+        for (let debut = 0; ; debut += 1000) {
+            const r = await dbHttp('GET', `${chemin}&limit=1000&offset=${debut}`, undefined, jeton);
+            if (!r.ok || !Array.isArray(r.json)) return r.ok ? lignes : null;
+            lignes.push(...r.json);
+            if (r.json.length < 1000) return lignes;
+        }
+    }
+
+    // Au chargement et à la connexion : joueurs déjà repérés (avec leur dernier statut) et derniers classements de guildes.
+    // Les profils bruts ne sont chargés qu'à l'ouverture d'une fiche (dbFiche).
+    async function dbCharger() {
+        const jeton = await dbJeton();
+        if (!jeton) return;
+        const joueurs = await dbLire('/rest/v1/joueurs?select=nom,ironcow,couleur,statut,a_guilde,guilde,rang,total_level,combat_level,age&order=nom', jeton);
+        if (!joueurs) { log('Base : lecture des joueurs impossible.'); return; }
+        let ajoutes = 0;
+        for (const j of joueurs) {
+            let p = recrues.get(j.nom);
+            if (!p) { p = newRecruit(j.nom, j.couleur); recrues.set(j.nom, p); ajoutes++; }
+            if (j.ironcow) p.ironcow = true;
+            if (!p.color && j.couleur) p.color = j.couleur;
+            // Ce qui a été vérifié pendant cette session fait foi
+            if (p.verifie || j.statut === 'pending') continue;
+            p.verifie = true;
+            p.echec = j.statut === 'fail';
+            p.hasGuild = !!j.a_guilde;
+            p.guilde = j.guilde || '';
+            p.rang = j.rang || '';
+            p.stats = { total: j.total_level ?? '?', combat: j.combat_level ?? '?', age: j.age || '?' };
+            p.ironcow = !!j.ironcow;
+        }
+
+        // Classements du dernier scan qui a lu l'onglet Guilds (sauf si un scan de cette session les a déjà lus)
+        if (!guildes.size) {
+            const dernier = await dbHttp('GET', '/rest/v1/guildes_classements?select=scan_id&order=scan_id.desc&limit=1', undefined, jeton);
+            const scanId = dernier.ok && dernier.json && dernier.json[0] && dernier.json[0].scan_id;
+            const lignes = scanId ? await dbLire(`/rest/v1/guildes_classements?select=guilde,classement,rang,valeurs&scan_id=eq.${scanId}&order=id`, jeton) : null;
+            (lignes || []).forEach(l => {
+                const g = guildes.get(l.guilde) || { nom: l.guilde, stats: {} };
+                g.stats[l.classement] = { rang: l.rang ?? NaN, valeurs: l.valeurs || {} };
+                guildes.set(l.guilde, g);
+            });
+        }
+        log(`Base : ${joueurs.length} joueurs lus (${ajoutes} ajoutés à la liste), ${guildes.size} guildes.`);
+        setStatus(`Base : ${joueurs.length} joueur(s) chargé(s).`, 'ok');
+        updateModalUI();
+    }
+
+    // Fiche d'un joueur vérifié lors d'une session précédente : profil brut et onglets de sa dernière vérification réussie
+    const fichesDemandees = new Set();
+    async function dbFiche(p) {
+        if (!p.verifie || p.echec || profilsBruts.has(p.nom) || fichesDemandees.has(p.nom)) return;
+        fichesDemandees.add(p.nom);
+        const jeton = await dbJeton();
+        if (!jeton) { fichesDemandees.delete(p.nom); return; }
+        const r = await dbHttp('GET', `/rest/v1/verifications?select=profil_brut,sections&joueur=eq.${encodeURIComponent(p.nom)}&succes=is.true&order=verifie_le.desc&limit=1`, undefined, jeton);
+        const v = r.ok && r.json && r.json[0];
+        if (!v) { fichesDemandees.delete(p.nom); return; }
+        if (v.profil_brut && !profilsBruts.has(p.nom)) profilsBruts.set(p.nom, v.profil_brut);
+        if (v.sections && !p.profil) p.profil = { sections: v.sections, lu: Date.now() };
+        if (currentProfile === p.nom) renderProfileView();
+        updateModalUI();
     }
 
     // Pastille « Base » de la modale : connecté ou non, envois en attente
@@ -1072,6 +1140,7 @@
         document.getElementById('mwi-db-logout').addEventListener('click', dbDeconnexion);
         majBase();
         dbVider(); // envois restés en attente à la dernière session
+        dbCharger(); // joueurs et guildes enregistrés lors des sessions précédentes
 
         enableDrag(modal, document.getElementById('mwi-r-head'));
         enableResize(modal);
@@ -1153,6 +1222,7 @@
         renderProfileView();
         const p = recrues.get(username);
         if (p && !p.verifie) verifierUn(p);
+        else if (p) dbFiche(p);
     }
 
     // Vérification d'un seul joueur à l'ouverture de sa fiche (sauf si un scan ou une vérification tourne déjà) :
