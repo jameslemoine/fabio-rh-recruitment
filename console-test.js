@@ -1,7 +1,7 @@
 // Fichier généré par tools/build-console.js - ne pas modifier à la main.
 // Coller tout le contenu dans la console du jeu (F12) pour tester sans Tampermonkey.
-// Version : 9febae7 - CSS intégré au script (dépôt privé : plus de @resource jsDelivr)
-console.log('[Fabio RH] console-test :', "9febae7 - CSS intégré au script (dépôt privé : plus de @resource jsDelivr)");
+// Version : e83c5ef - Fabio RH 1.20 : CSS intégré au script
+console.log('[Fabio RH] console-test :', "e83c5ef - Fabio RH 1.20 : CSS intégré au script");
 (function() {
     'use strict';
 
