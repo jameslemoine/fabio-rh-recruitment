@@ -442,7 +442,7 @@
 .mwi-r-dot.off { background: var(--r-err); opacity: .8; }
 .mwi-r-dot.masque { background: transparent; border: 1px solid var(--r-muted); }
 .mwi-r-zz { margin-right: 6px; font-size: 11px; flex-shrink: 0; }
-/* Bouton « Dispo » : en ligne ou ne fait rien */
+/* Boutons « En ligne » et « Activité » (dernier /profile) */
 .mwi-r-dispo { padding: 5px 10px; font-weight: 600; white-space: nowrap; }
 
 /* Recherche de joueur avec suggestions */
