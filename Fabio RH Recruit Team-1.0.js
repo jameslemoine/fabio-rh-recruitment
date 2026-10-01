@@ -10,6 +10,10 @@
 // @copyright    2026 Fabio Lucci - Tous droits reserves - Yloise
 // @resource     FABIO_CSS https://cdn.jsdelivr.net/gh/jameslemoine/fabio-rh-recruitment@42ea415b857a4b4c13d74d9342a36ec80ac441f0/fabio-rh.css
 // @grant        GM_getResourceText
+// @grant        GM_xmlhttpRequest
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @connect      cyvtgzkepticodlcrtjb.supabase.co
 // @grant        unsafeWindow
 // @license      All Rights Reserved; This script is proprietary and cannot be copied, modified, or distributed without explicit permission.
 // ==/UserScript==
@@ -81,6 +85,176 @@
         }
     } catch (e) {
         log('Écoute des profils impossible, lecture à l\'écran uniquement :', e);
+    }
+
+    // ---------------------------------------------------------------
+    // 0b. Base Supabase : chaque scan et chaque vérification y est enregistré
+    // ---------------------------------------------------------------
+    // Accès réservé aux recruteurs (compte Supabase autorisé dans la table recruteurs, RLS côté base).
+    // La clé publishable ne donne accès à rien sans connexion. Rien n'est envoyé au serveur du jeu.
+    const DB_URL = 'https://cyvtgzkepticodlcrtjb.supabase.co';
+    const DB_KEY = 'sb_publishable_iDo61JeURJa-DFmvwFQfWA_iNvrGi3M';
+    const DB_SESSION = 'fabio-db-session';
+    const DB_FILE = 'fabio-db-file'; // envois en attente (pas connecté, réseau coupé...)
+    const DB_FILE_MAX = 300;
+    let dbEnvoi = false;
+
+    // Stockage du gestionnaire de scripts (hors de la page du jeu), localStorage dans la console
+    const gmGet = (k, d) => {
+        try { return typeof GM_getValue === 'function' ? GM_getValue(k, d) : (JSON.parse(localStorage.getItem(k)) ?? d); } catch (e) { return d; }
+    };
+    const gmSet = (k, v) => {
+        try { if (typeof GM_setValue === 'function') GM_setValue(k, v); else localStorage.setItem(k, JSON.stringify(v)); } catch (e) { }
+    };
+
+    // Requête HTTP : GM_xmlhttpRequest (pas bloqué par la CSP du jeu), fetch dans la console
+    function dbHttp(method, path, body, token) {
+        const headers = { apikey: DB_KEY, 'Content-Type': 'application/json', Prefer: 'return=minimal' };
+        if (token) headers.Authorization = `Bearer ${token}`;
+        const data = body === undefined ? undefined : JSON.stringify(body);
+        const lire = (status, text) => {
+            let json = null;
+            try { json = text ? JSON.parse(text) : null; } catch (e) { }
+            return { ok: status >= 200 && status < 300, status, json };
+        };
+        if (typeof GM_xmlhttpRequest !== 'function') {
+            return fetch(DB_URL + path, { method, headers, body: data })
+                .then(async r => lire(r.status, await r.text()), () => ({ ok: false, status: 0, json: null }));
+        }
+        return new Promise(resolve => GM_xmlhttpRequest({
+            method, url: DB_URL + path, headers, data,
+            onload: r => resolve(lire(r.status, r.responseText)),
+            onerror: () => resolve({ ok: false, status: 0, json: null }),
+            ontimeout: () => resolve({ ok: false, status: 0, json: null })
+        }));
+    }
+
+    const dbSession = () => gmGet(DB_SESSION, null);
+    function garderSession(json) {
+        const s = { access: json.access_token, refresh: json.refresh_token, expire: json.expires_at * 1000, email: json.user && json.user.email };
+        gmSet(DB_SESSION, s);
+        return s;
+    }
+
+    async function dbConnexion(email, password) {
+        const r = await dbHttp('POST', '/auth/v1/token?grant_type=password', { email, password });
+        if (!r.ok) return (r.json && (r.json.msg || r.json.error_description || r.json.message)) || `erreur ${r.status}`;
+        garderSession(r.json);
+        dbVider();
+        return '';
+    }
+
+    async function dbDeconnexion() {
+        const s = dbSession();
+        gmSet(DB_SESSION, null);
+        if (s) await dbHttp('POST', '/auth/v1/logout', {}, s.access);
+        majBase();
+    }
+
+    // Jeton valide (rafraîchi une minute avant expiration), null si pas connecté
+    async function dbJeton() {
+        const s = dbSession();
+        if (!s) return null;
+        if (Date.now() < s.expire - 60000) return s.access;
+        const r = await dbHttp('POST', '/auth/v1/token?grant_type=refresh_token', { refresh_token: s.refresh });
+        if (r.ok) return garderSession(r.json).access;
+        if (r.status >= 400 && r.status < 500) gmSet(DB_SESSION, null); // session révoquée : reconnexion nécessaire
+        return null;
+    }
+
+    // Ajoute un envoi à la file puis la vide dans l'ordre ; un échec garde le reste pour plus tard
+    function dbEnvoyer(type, donnees) {
+        const file = gmGet(DB_FILE, []);
+        file.push({ type, donnees });
+        gmSet(DB_FILE, file.slice(-DB_FILE_MAX));
+        dbVider();
+    }
+
+    async function dbVider() {
+        if (dbEnvoi) return;
+        dbEnvoi = true;
+        try {
+            for (;;) {
+                const file = gmGet(DB_FILE, []);
+                if (!file.length) break;
+                const jeton = await dbJeton();
+                if (!jeton) break;
+                const { type, donnees } = file[0];
+                const r = type === 'scan'
+                    ? await dbHttp('POST', '/rest/v1/rpc/enregistrer_scan', { scan: donnees }, jeton)
+                    : await dbHttp('POST', '/rest/v1/verifications', donnees, jeton);
+                if (!r.ok) {
+                    log(`Base : envoi ${type} refusé (${r.status})`, r.json);
+                    // Données refusées par la base : on ne bloque pas la file. 403 (compte pas encore autorisé)
+                    // ou réseau : on garde tout pour plus tard
+                    if (r.status === 400 || r.status === 409 || r.status === 422) gmSet(DB_FILE, gmGet(DB_FILE, []).slice(1));
+                    else break;
+                    continue;
+                }
+                gmSet(DB_FILE, gmGet(DB_FILE, []).slice(1));
+            }
+        } finally {
+            dbEnvoi = false;
+            majBase();
+        }
+    }
+
+    // Une vérification : résultat lu + profil brut du WebSocket + sections lues à l'écran
+    function dbVerification(p) {
+        const entier = (v) => /^\d+$/.test(String(v)) ? +v : null;
+        const brut = profilsBruts.get(p.nom) || null;
+        const c = brut && brut.sharableCharacter;
+        let sections = null;
+        try { sections = p.profil ? JSON.parse(JSON.stringify(p.profil.sections)) : null; } catch (e) { }
+        dbEnvoyer('verification', {
+            joueur: p.nom,
+            verifie_le: new Date().toISOString(),
+            succes: !p.echec,
+            a_guilde: p.echec ? null : p.hasGuild,
+            guilde: p.echec ? null : p.guilde || null,
+            rang: p.echec ? null : p.rang || null,
+            total_level: p.echec ? null : entier(p.stats.total),
+            combat_level: p.echec ? null : entier(p.stats.combat),
+            age: p.echec || p.stats.age === '?' ? null : p.stats.age,
+            ironcow: p.ironcow,
+            en_ligne: !c || c.hideOnlineStatus ? null : !!c.isOnline,
+            profil_brut: brut,
+            sections
+        });
+    }
+
+    // Un scan : onglets, compteurs, journal complet (y compris les lignes ignorées), joueurs vus et classements de guildes
+    function dbScan({ debut, onglets, totalMessages, countNew, leaderboard, guildCats, scanLog }) {
+        const vus = new Set(scanLog.filter(e => recrues.has(e.pseudo)).map(e => e.pseudo));
+        const lesGuildes = [];
+        if (guildCats) guildes.forEach(g => Object.entries(g.stats).forEach(([classement, st]) =>
+            lesGuildes.push({ guilde: g.nom, classement, rang: Number.isFinite(st.rang) ? st.rang : null, valeurs: st.valeurs })));
+        dbEnvoyer('scan', {
+            debut,
+            onglets,
+            sources: ['chat', ...(sourceActive(SOURCE_LEADERBOARD) ? ['leaderboard'] : []), ...(sourceActive(SOURCE_GUILDES) ? ['guildes'] : [])],
+            mode: currentMode,
+            nb_messages: totalMessages,
+            nb_nouveaux: countNew,
+            nb_classements: leaderboard,
+            joueurs: Array.from(vus, nom => { const r = recrues.get(nom); return { nom, ironcow: !!r.ironcow, couleur: r.color || '' }; }),
+            entrees: scanLog.map(e => ({ pseudo: String(e.pseudo || '-'), resultat: e.resultat, onglet: e.onglet || null, brut: e.brut || null })),
+            guildes: lesGuildes
+        });
+    }
+
+    // Pastille « Base » de la modale : connecté ou non, envois en attente
+    function majBase() {
+        const el = document.getElementById('mwi-db');
+        if (!el) return;
+        const s = dbSession(), attente = gmGet(DB_FILE, []).length;
+        el.dataset.etat = !s ? 'off' : attente ? 'attente' : 'on';
+        el.title = !s ? 'Base : non connecté (clic pour se connecter)'
+            : `Base : connecté (${s.email})${attente ? ` · ${attente} envoi(s) en attente` : ''}`;
+        const info = document.getElementById('mwi-db-info');
+        if (info) info.textContent = s ? `Connecté : ${s.email}${attente ? ` · ${attente} en attente` : ''}` : '';
+        const panneau = document.getElementById('mwi-db-panel');
+        if (panneau) panneau.dataset.connecte = s ? '1' : '';
     }
 
     // ---------------------------------------------------------------
@@ -276,6 +450,7 @@
         let totalMessages = 0;
         let leaderboard = 0, guildCats = 0;
         const scanLog = [];
+        const debut = new Date().toISOString();
 
         try {
             for (const tab of tabs) {
@@ -316,6 +491,7 @@
         }
 
         log(`${countNew} nouveaux joueurs mis en file d'attente (${recrues.size} au total).`);
+        dbScan({ debut, onglets: tabs.map(tabLabel), totalMessages, countNew, leaderboard, guildCats, scanLog });
         console.table(scanLog.filter(e => e.resultat.startsWith('ignoré')));
         setStatus(`Scan terminé (${tabs.length} onglets de chat, ${leaderboard} classements, ${guildes.size} guildes) : ${countNew} nouveau(x) joueur(s).`,
             (leaderboard || !sourceActive(SOURCE_LEADERBOARD)) && (guildCats || !sourceActive(SOURCE_GUILDES)) ? 'ok' : 'warn');
@@ -729,12 +905,22 @@
                 <img class="mwi-r-logo" src="${FABIO_ICON}" alt=""><span class="mwi-r-title">Fabio RH</span>
                 <span class="mwi-r-badge" id="mwi-badge" title="Joueurs sans guilde">0</span>
                 <div class="mwi-r-ctrl">
+                    <button class="mwi-r-icon mwi-r-db" id="mwi-db" data-etat="off" title="Base">☁</button>
                     <button class="mwi-r-icon" id="mwi-btn-min" title="Réduire">–</button>
                     <button class="mwi-r-icon" id="mwi-btn-max" title="Agrandir">□</button>
                     <button class="mwi-r-icon close" id="mwi-btn-close" title="Fermer">✕</button>
                 </div>
             </div>
             <div class="mwi-r-body">
+                <form class="mwi-r-dbpanel" id="mwi-db-panel" hidden>
+                    <span class="mwi-r-dbtitre">Base Fabio RH</span>
+                    <input type="email" class="mwi-r-select" id="mwi-db-email" placeholder="E-mail" autocomplete="username">
+                    <input type="password" class="mwi-r-select" id="mwi-db-pass" placeholder="Mot de passe" autocomplete="current-password">
+                    <button type="submit" class="mwi-r-btn primary" id="mwi-db-login">Connexion</button>
+                    <span class="mwi-r-dbinfo" id="mwi-db-info"></span>
+                    <button type="button" class="mwi-r-btn" id="mwi-db-sync" title="Renvoyer les scans et vérifications en attente">Envoyer</button>
+                    <button type="button" class="mwi-r-btn" id="mwi-db-logout">Déconnexion</button>
+                </form>
                 <div class="mwi-r-toolbar">
                     <select class="mwi-r-select" id="mwi-filter" title="Filtrer la liste">
                         <option value="free">Sans guilde</option>
@@ -870,6 +1056,23 @@
             updateModalUI();
         });
 
+        const dbPanel = document.getElementById('mwi-db-panel');
+        document.getElementById('mwi-db').addEventListener('click', () => { dbPanel.hidden = !dbPanel.hidden; majBase(); });
+        dbPanel.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('mwi-db-email'), pass = document.getElementById('mwi-db-pass');
+            setStatus('Connexion à la base...', '');
+            const erreur = await dbConnexion(email.value.trim(), pass.value);
+            pass.value = '';
+            setStatus(erreur ? `Connexion refusée : ${erreur}` : 'Connecté à la base.', erreur ? 'err' : 'ok');
+            if (!erreur) dbPanel.hidden = true;
+            majBase();
+        });
+        document.getElementById('mwi-db-sync').addEventListener('click', dbVider);
+        document.getElementById('mwi-db-logout').addEventListener('click', dbDeconnexion);
+        majBase();
+        dbVider(); // envois restés en attente à la dernière session
+
         enableDrag(modal, document.getElementById('mwi-r-head'));
         enableResize(modal);
         updateModalUI();
@@ -971,7 +1174,7 @@
             }, () => attendreEnvoi(chatInput, p.nom, () => currentProfile === p.nom), p.nom, ok => ok !== false);
             if (o.impossible) setStatus('Champ de chat introuvable.', 'err');
             else if (o.res === null) setStatus(`Vérification de ${p.nom} annulée.`, '');
-            else if (!o.res) { p.verifie = true; p.echec = true; setStatus(`Profil de ${p.nom} illisible.`, 'warn'); }
+            else if (!o.res) { p.verifie = true; p.echec = true; dbVerification(p); setStatus(`Profil de ${p.nom} illisible.`, 'warn'); }
             else setStatus(`Profil de ${p.nom} vérifié.`, 'ok');
         } catch (e) {
             log('Erreur pendant la vérification :', e);
@@ -1755,6 +1958,7 @@
         } catch (e) {
             log('Lecture des onglets du profil impossible :', e);
         }
+        dbVerification(playerData);
 
         const closeBtn = found.el.querySelector('button[aria-label="Close"], [class*="close" i], svg[class*="close" i]');
         if (closeBtn) {
@@ -1889,6 +2093,7 @@
                 if (!o.res) {
                     data.verifie = true;
                     data.echec = true;
+                    dbVerification(data);
                 }
                 bar.style.width = `${Math.round((index / toVerify) * 100)}%`;
                 updateModalUI();
