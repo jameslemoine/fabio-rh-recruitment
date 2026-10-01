@@ -1794,8 +1794,9 @@
     // executer(action, attendre, prefix, reussi) : action() envoie la commande (false = impossible),
     // attendre() renvoie le résultat ; on retente tant que le jeu signale un spam et que reussi(res) est faux.
     // Renvoie { res, spam: true si le jeu a refusé jusqu'au bout, impossible: true si action() a échoué }
-    function creerLimiteur(nom) {
-        let intervalle = INTERVALLE_MIN_MS, dernier = 0;
+    // min : délai de départ entre deux commandes (0 = aucun tant que le jeu ne signale pas de spam)
+    function creerLimiteur(nom, min = INTERVALLE_MIN_MS) {
+        let intervalle = min, dernier = 0;
         return {
             // L'envoi part plus tard que action() quand c'est le joueur qui valide : le délai compte depuis l'envoi réel
             marquerEnvoi() { dernier = Date.now(); },
@@ -1809,7 +1810,7 @@
                     const res = await attendre();
                     if (spamDetectedAt < sentAt - 300) return { res, spam: false };
                     // Le jeu trouve qu'on va trop vite : on ralentit durablement
-                    intervalle = Math.min(intervalle * 2, INTERVALLE_MAX_MS);
+                    intervalle = Math.min(Math.max(intervalle * 2, INTERVALLE_MIN_MS), INTERVALLE_MAX_MS);
                     log(`Intervalle entre ${nom} porté à ${intervalle} ms.`);
                     if (reussi(res)) return { res, spam: false };
                     if (reprise >= MAX_REPRISES_ANTISPAM) return { res, spam: true };
@@ -1818,7 +1819,9 @@
             }
         };
     }
-    const limiteurProfils = creerLimiteur('profils');
+    // C'est le joueur qui envoie chaque /profile : le suivant est prérempli dès que le profil est lu,
+    // le délai anti-spam ne s'applique qu'après un avertissement du jeu
+    const limiteurProfils = creerLimiteur('profils', 0);
 
     async function pauseAntispam(prefix) {
         for (let left = PAUSE_ANTISPAM_MS; left > 0 && !arretDemande; left -= 1000) {
