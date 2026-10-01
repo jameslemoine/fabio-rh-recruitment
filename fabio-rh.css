@@ -95,31 +95,10 @@
 .mwi-r-dbinfo { flex: 1; font-size: 12px; color: var(--r-ok); }
 .mwi-r-dbpanel[data-connecte="1"] input, .mwi-r-dbpanel[data-connecte="1"] #mwi-db-login,
 .mwi-r-dbpanel:not([data-connecte="1"]) #mwi-db-sync, .mwi-r-dbpanel:not([data-connecte="1"]) #mwi-db-logout { display: none; }
-/* Lecture seule (lecteur ou non connecté) : ni canaux, ni scan, ni vérification */
-#mwi-tracker-modal[data-role="lecteur"] .mwi-r-chans-head,
-#mwi-tracker-modal[data-role="lecteur"] .mwi-r-chans,
+/* Lecture seule (lecteur ou non connecté) : ni scan, ni vérification */
 #mwi-tracker-modal[data-role="lecteur"] .mwi-r-progress,
 #mwi-tracker-modal[data-role="lecteur"] .mwi-r-actions { display: none; }
 
-.mwi-r-chans-head { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--r-muted); }
-.mwi-r-chans-toggle { padding: 0; font-size: 11px; color: var(--r-muted); background: none; border: 0; cursor: pointer; }
-.mwi-r-chans-toggle:hover { color: var(--r-text); }
-.mwi-r-chans-toggle b { margin-left: 4px; font-weight: 400; }
-.mwi-r-chans-toggle .fl { display: inline-block; transition: transform .15s; }
-#mwi-tracker-modal[data-chans="ouvert"] .mwi-r-chans-toggle .fl { transform: rotate(90deg); }
-/* Canaux repliés par défaut */
-#mwi-tracker-modal:not([data-chans="ouvert"]) .mwi-r-chans { display: none; }
-.mwi-r-chans { display: flex; flex-wrap: wrap; gap: 4px; }
-.mwi-r-chan {
-    display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
-    font-size: 11px; cursor: pointer; user-select: none;
-    background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 10px;
-}
-.mwi-r-chan:has(input:checked) { border-color: var(--r-accent); color: var(--r-text); }
-.mwi-r-chan:not(:has(input:checked)) { color: var(--r-muted); opacity: .7; }
-.mwi-r-chan.iron:has(input:checked) { border-color: var(--r-warn); }
-.mwi-r-chan input { margin: 0; accent-color: var(--r-accent); }
-.mwi-r-chan-empty { font-size: 11px; font-style: italic; color: var(--r-muted); }
 .mwi-r-iron { font-size: 11px; font-weight: 700; color: var(--r-warn); margin-left: 4px; flex-shrink: 0; }
 .mwi-r-select {
     flex: 0 1 150px; padding: 5px 8px; color: var(--r-text);
@@ -258,15 +237,11 @@
 #mwi-tracker-modal[data-view="profile"] .mwi-r-main,
 #mwi-tracker-modal[data-view="profile"] .mwi-r-list,
 #mwi-tracker-modal[data-view="profile"] .mwi-r-toolbar,
-#mwi-tracker-modal[data-view="profile"] .mwi-r-filters,
-#mwi-tracker-modal[data-view="profile"] .mwi-r-chans-head,
-#mwi-tracker-modal[data-view="profile"] .mwi-r-chans { display: none; }
+#mwi-tracker-modal[data-view="profile"] .mwi-r-filters { display: none; }
 #mwi-tracker-modal[data-view="guilds"] .mwi-r-main,
 #mwi-tracker-modal[data-view="guilds"] .mwi-r-list,
 #mwi-tracker-modal[data-view="guilds"] .mwi-r-toolbar,
-#mwi-tracker-modal[data-view="guilds"] .mwi-r-filters,
-#mwi-tracker-modal[data-view="guilds"] .mwi-r-chans-head,
-#mwi-tracker-modal[data-view="guilds"] .mwi-r-chans { display: none; }
+#mwi-tracker-modal[data-view="guilds"] .mwi-r-filters { display: none; }
 .mwi-r-phead { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--r-border); }
 .mwi-r-pname { flex: 1; min-width: 0; font-size: 17px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mwi-r-pview .mwi-r-profile { visibility: visible; }
@@ -466,6 +441,9 @@
 .mwi-r-dot.on { background: var(--r-ok); opacity: 1; box-shadow: 0 0 6px var(--r-ok); }
 .mwi-r-dot.off { background: var(--r-err); opacity: .8; }
 .mwi-r-dot.masque { background: transparent; border: 1px solid var(--r-muted); }
+.mwi-r-zz { margin-right: 6px; font-size: 11px; flex-shrink: 0; }
+/* Bouton « Dispo » : en ligne ou ne fait rien */
+.mwi-r-dispo { padding: 5px 10px; font-weight: 600; white-space: nowrap; }
 
 /* Recherche de joueur avec suggestions */
 .mwi-r-search { position: relative; flex: 1 1 160px; min-width: 140px; }
