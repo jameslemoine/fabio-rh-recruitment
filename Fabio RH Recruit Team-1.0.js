@@ -46,8 +46,9 @@
     let enAttente = null; // pseudo dont la commande /profile est préremplie, en attente de la touche Entrée du joueur
     let currentFilter = 'free';
     let currentMode = 'all'; // 'all' | 'standard' | 'ironcow'
-    // Filtres du dernier /profile : seulement les joueurs en ligne ; activité '' (tous) | 'occupe' | 'rien'
-    let filtreEnLigne = false;
+    // Filtres du dernier /profile : en ligne '' (tous) | 'on' | 'off' ; activité '' (tous) | 'occupe' | 'rien'
+    let filtreEnLigne = '';
+    const EN_LIGNE = { '': '⚪ En ligne', on: '🟢 En ligne', off: '🔴 Hors ligne' };
     let filtreActivite = '';
     const ACTIVITES = { '': 'Activité', occupe: '⚙ Fait quelque chose', rien: '💤 Ne fait rien' };
     let currentSkill = ''; // '' (tous les joueurs) | 'combat_level' | un skill : joueurs à NIVEAU_MIN_SKILL ou plus
@@ -1028,7 +1029,7 @@
                         <option value="standard">Standard</option>
                         <option value="ironcow">🐄 Ironcow (IC)</option>
                     </select>
-                    <button class="mwi-r-btn mwi-r-dispo" id="mwi-btn-enligne" title="N'afficher que les joueurs en ligne à leur dernier /profile">🟢 En ligne</button>
+                    <button class="mwi-r-btn mwi-r-dispo" id="mwi-btn-enligne" title="Statut au dernier /profile : tous, puis en ligne, puis hors ligne">⚪ En ligne</button>
                     <button class="mwi-r-btn mwi-r-dispo" id="mwi-btn-activite" title="Activité au dernier /profile : tous, puis ceux qui font quelque chose, puis ceux qui ne font rien">Activité</button>
                     <div class="mwi-r-sizes" id="mwi-size" title="Taille des cases">
                         <button class="mwi-r-icon" data-size="large" title="Grandes cases : toutes les infos"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><rect x="1" y="1" width="14" height="6" rx="1"/><rect x="1" y="9" width="14" height="6" rx="1"/></svg></button>
@@ -1130,18 +1131,19 @@
             document.getElementById('mwi-tracker-list').scrollTop = 0;
             updateModalUI();
         });
-        // Filtres « En ligne » (oui / non) et « Activité » (tous → fait quelque chose → ne fait rien), au dernier /profile
+        // Filtres « En ligne » (tous → en ligne → hors ligne) et « Activité » (tous → fait quelque chose → ne fait rien), au dernier /profile
         const enLigneBtn = document.getElementById('mwi-btn-enligne'), activiteBtn = document.getElementById('mwi-btn-activite');
-        filtreEnLigne = !!saved.filtreEnLigne;
+        filtreEnLigne = saved.filtreEnLigne === true ? 'on' : saved.filtreEnLigne in EN_LIGNE ? saved.filtreEnLigne : '';
         filtreActivite = saved.filtreActivite in ACTIVITES ? saved.filtreActivite : '';
         const majFiltresEtat = () => {
-            enLigneBtn.classList.toggle('actif', filtreEnLigne);
+            enLigneBtn.classList.toggle('actif', !!filtreEnLigne);
+            enLigneBtn.textContent = EN_LIGNE[filtreEnLigne];
             activiteBtn.classList.toggle('actif', !!filtreActivite);
             activiteBtn.textContent = ACTIVITES[filtreActivite];
         };
         majFiltresEtat();
         enLigneBtn.addEventListener('click', () => {
-            filtreEnLigne = !filtreEnLigne;
+            filtreEnLigne = { '': 'on', on: 'off', off: '' }[filtreEnLigne];
             saveUI({ filtreEnLigne });
             majFiltresEtat();
             updateModalUI();
@@ -1744,7 +1746,8 @@
     function passeFiltresEtat(p) {
         if (!filtreEnLigne && !filtreActivite) return true;
         const e = etatJoueur(p);
-        if (filtreEnLigne && e.enLigne !== true) return false;
+        if (filtreEnLigne === 'on' && e.enLigne !== true) return false;
+        if (filtreEnLigne === 'off' && e.enLigne !== false) return false;
         if (filtreActivite === 'occupe' && !e.activite) return false;
         if (filtreActivite === 'rien' && e.activite !== '') return false;
         return true;
@@ -1876,7 +1879,7 @@
                 all: 'Aucun joueur scanné.'
             };
             const modeHint = (currentMode === 'all' ? '' : `\n(filtre : ${currentMode === 'ironcow' ? 'Ironcow' : 'Standard'})`)
-                + (filtreEnLigne ? '\n(filtre : en ligne)' : '') + (filtreActivite ? `\n(filtre : ${ACTIVITES[filtreActivite]})` : '');
+                + (filtreEnLigne ? `\n(filtre : ${EN_LIGNE[filtreEnLigne]})` : '') + (filtreActivite ? `\n(filtre : ${ACTIVITES[filtreActivite]})` : '');
             list.innerHTML = `<li class="mwi-r-empty" style="white-space: pre-line;">${msgs[currentFilter]}${modeHint}</li>`;
             return;
         }
