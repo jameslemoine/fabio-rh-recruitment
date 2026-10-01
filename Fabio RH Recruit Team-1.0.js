@@ -46,6 +46,16 @@
     let enAttente = null; // pseudo dont la commande /profile est préremplie, en attente de la touche Entrée du joueur
     let currentFilter = 'free';
     let currentMode = 'all'; // 'all' | 'standard' | 'ironcow'
+    // Filtres du dernier /profile : en ligne '' (tous) | 'on' | 'off' ; activité '' (tous) | 'occupe' | 'rien'
+    let filtreEnLigne = '';
+    const EN_LIGNE = { '': '⚪ En ligne', on: '🟢 En ligne', off: '🔴 Hors ligne' };
+    let filtreActivite = '';
+    const ACTIVITES = { '': 'Activité', occupe: '⚙ Fait quelque chose', rien: '💤 Ne fait rien' };
+    let currentSkill = ''; // '' (tous les joueurs) | 'combat_level' | un skill : joueurs à NIVEAU_MIN_SKILL ou plus
+    const NIVEAU_MIN_SKILL = 120;
+    // Un joueur vérifié il y a plus longtemps repasse « à revérifier » (dans la file de « 2. Vérifier Profils »)
+    const DELAI_REVERIF_JOURS = 7;
+    const joursDepuis = (t) => Math.floor((Date.now() - t) / 86400000);
 
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     const log = (...a) => console.log('[Radar]', ...a);
@@ -203,6 +213,8 @@
 
     // Une vérification : résultat lu + profil brut du WebSocket + sections lues à l'écran
     function dbVerification(p) {
+        p.perime = false;
+        p.derniereVerif = Date.now();
         const entier = (v) => /^\d+$/.test(String(v)) ? +v : null;
         const brut = profilsBruts.get(p.nom) || null;
         const c = brut && brut.sharableCharacter;
@@ -266,7 +278,7 @@
             majBase();
             if (!ligne || !ligne.actif) { setStatus('Compte connecté mais pas encore autorisé : demande un accès.', 'warn'); return; }
         }
-        const joueurs = await dbLire('/rest/v1/joueurs?select=nom,ironcow,couleur,statut,a_guilde,guilde,rang,total_level,combat_level,age&order=nom', jeton);
+        const joueurs = await dbLire('/rest/v1/joueurs?select=nom,ironcow,couleur,statut,a_guilde,guilde,rang,total_level,combat_level,age,niveaux,equipement,en_ligne,activite,derniere_verif&order=nom', jeton);
         if (!joueurs) { log('Base : lecture des joueurs impossible.'); return; }
         let ajoutes = 0;
         for (const j of joueurs) {
@@ -274,8 +286,13 @@
             if (!p) { p = newRecruit(j.nom, j.couleur); recrues.set(j.nom, p); ajoutes++; }
             if (j.ironcow) p.ironcow = true;
             if (!p.color && j.couleur) p.color = j.couleur;
+            if (!p.niveaux && j.niveaux) p.niveaux = j.niveaux;
+            if (!p.equipement && j.equipement) p.equipement = j.equipement;
+            if (p.activite === undefined && j.activite !== null) { p.activite = j.activite; p.enLigne = j.en_ligne; }
             // Ce qui a été vérifié pendant cette session fait foi
             if (p.verifie || j.statut === 'pending') continue;
+            const verif = Date.parse(j.derniere_verif || '');
+            if (Number.isFinite(verif)) p.derniereVerif = verif;
             p.verifie = true;
             p.echec = j.statut === 'fail';
             p.hasGuild = !!j.a_guilde;
@@ -283,6 +300,9 @@
             p.rang = j.rang || '';
             p.stats = { total: j.total_level ?? '?', combat: j.combat_level ?? '?', age: j.age || '?' };
             p.ironcow = !!j.ironcow;
+            // Vérifié il y a trop longtemps : on garde ses infos mais il repart dans la file à vérifier
+            p.perime = Number.isFinite(verif) && joursDepuis(verif) >= DELAI_REVERIF_JOURS;
+            if (p.perime) p.verifie = false;
         }
 
         // Dernier relevé de chaque guilde dans chaque classement (chaque scan n'en lit qu'un) ;
@@ -301,7 +321,7 @@
     // Fiche d'un joueur vérifié lors d'une session précédente : profil brut et onglets de sa dernière vérification réussie
     const fichesDemandees = new Set();
     async function dbFiche(p) {
-        if (!p.verifie || p.echec || profilsBruts.has(p.nom) || fichesDemandees.has(p.nom)) return;
+        if ((!p.verifie && !p.perime) || p.echec || profilsBruts.has(p.nom) || fichesDemandees.has(p.nom)) return;
         fichesDemandees.add(p.nom);
         const jeton = await dbJeton();
         if (!jeton) { fichesDemandees.delete(p.nom); return; }
@@ -309,6 +329,8 @@
         const v = r.ok && r.json && r.json[0];
         if (!v) { fichesDemandees.delete(p.nom); return; }
         if (v.profil_brut && !profilsBruts.has(p.nom)) profilsBruts.set(p.nom, v.profil_brut);
+        if (!p.niveaux) p.niveaux = niveauxProfil(v.profil_brut);
+        if (!p.equipement) p.equipement = equipementProfil(v.profil_brut);
         if (v.sections && !p.profil) p.profil = { sections: v.sections, lu: Date.now() };
         if (currentProfile === p.nom) renderProfileView();
         updateModalUI();
@@ -361,31 +383,11 @@
         return (span ? span.textContent.trim() : '') || tab.getAttribute('title') || 'Canal';
     };
     const tabKey = (tab) => tab.getAttribute('data-mention-channel') || tabLabel(tab);
-    const isIronTab = (tab) => /ironcow/i.test(tabKey(tab) + ' ' + tabLabel(tab));
 
-    // On mémorise les canaux exclus (et non les inclus) pour qu'un nouveau canal soit scanné par défaut
+    // Le scan lit toujours les mêmes onglets : tous ceux du chat, sauf ceux exclus autrefois dans la modale
     function getSelectedTabs() {
         const excluded = loadUI().excludedChannels || [];
         return getChatTabs().filter(t => !excluded.includes(tabKey(t)));
-    }
-
-    function renderChannels() {
-        const box = document.getElementById('mwi-channels');
-        if (!box) return;
-        const tabs = getChatTabs();
-        const excluded = loadUI().excludedChannels || [];
-        const chan = (key, label, cls = '') => `<label class="mwi-r-chan${cls}">
-                <input type="checkbox" data-key="${esc(key)}" ${excluded.includes(key) ? '' : 'checked'}>
-                ${label}
-            </label>`;
-        box.innerHTML = (tabs.length
-            ? tabs.map(t => chan(tabKey(t), `${isIronTab(t) ? '🐄 ' : ''}${esc(tabLabel(t))}`, isIronTab(t) ? ' iron' : '')).join('')
-            : '<span class="mwi-r-chan-empty">Aucun canal détecté (chat pas encore chargé ?)</span>');
-        box.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.addEventListener('change', () => {
-            const keys = Array.from(box.querySelectorAll('input[type="checkbox"]'))
-                .filter(c => !c.checked).map(c => c.dataset.key);
-            saveUI({ excludedChannels: keys });
-        }));
     }
 
     // Pseudo et mode de jeu lus dans le composant CharacterName du jeu :
@@ -502,7 +504,6 @@
             return;
         }
 
-        renderChannels();
         const allTabs = getChatTabs();
         const tabs = getSelectedTabs();
         if (allTabs.length === 0) {
@@ -857,7 +858,7 @@
     // ---------------------------------------------------------------
     // 3. Interface & Styles
     // ---------------------------------------------------------------
-    const CSS = "#mwi-tracker-modal, #mwi-radar-launcher {\n    --r-bg: #0c0a0b;\n    --r-panel: #171113;\n    --r-panel-2: #24161a;\n    --r-border: #4a1f25;\n    --r-accent: #e0343c;\n    --r-accent-strong: #b3151d;\n    --r-gold: #e8b64c;\n    --r-text: #f4ece6;\n    --r-muted: #a08a8c;\n    --r-ok: #4ecb8d;\n    --r-warn: #f0a950;\n    --r-err: #ff5a5f;\n    font-family: \"Roboto\", \"Segoe UI\", sans-serif;\n    box-sizing: border-box;\n}\n#mwi-tracker-modal *, #mwi-radar-launcher * { box-sizing: border-box; }\n\n#mwi-tracker-modal {\n    position: fixed; top: 60px; right: 12px; z-index: 99999;\n    width: 340px; max-width: calc(100vw - 16px);\n    display: flex; flex-direction: column;\n    background: var(--r-bg); color: var(--r-text);\n    border: 1px solid var(--r-border); border-radius: 10px;\n    box-shadow: 0 8px 24px rgba(0,0,0,.55);\n    overflow: hidden; font-size: 13px;\n}\n#mwi-tracker-modal[data-mode=\"max\"] {\n    top: 5vh !important; left: 5vw !important; right: auto !important;\n    width: 90vw !important; height: 88vh !important;\n}\n#mwi-tracker-modal[data-mode=\"min\"] { height: auto !important; }\n#mwi-tracker-modal[data-sized=\"1\"] .mwi-r-list { max-height: none; }\n#mwi-tracker-modal[data-mode=\"min\"] .mwi-r-body { display: none; }\n#mwi-tracker-modal[data-mode=\"min\"] { width: 260px; }\n\n.mwi-r-head {\n    display: flex; align-items: center; gap: 8px;\n    padding: 8px 10px; cursor: move; user-select: none;\n    background: linear-gradient(180deg, var(--r-panel-2), var(--r-panel));\n    border-bottom: 2px solid var(--r-accent);\n}\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-head { cursor: default; }\n.mwi-r-title { flex: 1; font-size: 14px; font-weight: 700; color: var(--r-accent); letter-spacing: .3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n.mwi-r-logo { width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; display: block; }\n#mwi-radar-launcher { padding: 0; overflow: hidden; }\n#mwi-radar-launcher .mwi-r-logo { width: 100%; height: 100%; }\n.mwi-r-player { cursor: pointer; }\n.mwi-r-player:hover { text-decoration: underline; }\n.mwi-r-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }\n.mwi-r-profile {\n    visibility: hidden; font-weight: 700;\n    padding: 3px 12px; font-size: 12px; letter-spacing: .3px; cursor: pointer;\n    color: #fff; background: var(--r-accent);\n    border: 1px solid var(--r-accent); border-radius: 4px;\n    box-shadow: 0 0 8px rgba(224, 52, 60, .45);\n    transition: background .15s, box-shadow .15s, transform .1s;\n}\n.mwi-r-profile:hover { text-decoration: none; background: var(--r-accent-strong); box-shadow: 0 0 12px rgba(224, 52, 60, .75); transform: translateY(-1px); }\n.mwi-r-badge {\n    min-width: 22px; padding: 1px 7px; text-align: center;\n    font-size: 12px; font-weight: 700; color: var(--r-bg);\n    background: var(--r-ok); border-radius: 10px;\n}\n.mwi-r-ctrl { display: flex; gap: 4px; }\n.mwi-r-icon {\n    width: 24px; height: 24px; padding: 0; line-height: 1;\n    display: flex; align-items: center; justify-content: center;\n    color: var(--r-text); background: transparent;\n    border: 1px solid var(--r-border); border-radius: 5px;\n    cursor: pointer; font-size: 14px; transition: background .15s, border-color .15s;\n}\n.mwi-r-icon:hover { background: var(--r-panel-2); border-color: var(--r-accent); }\n.mwi-r-icon.close:hover { background: var(--r-err); border-color: var(--r-err); }\n\n.mwi-r-body { display: flex; flex-direction: column; gap: 10px; padding: 10px; flex: 1; min-height: 0; }\n\n.mwi-r-toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }\n.mwi-r-db[data-etat=\"off\"] { color: var(--r-muted); }\n.mwi-r-db[data-etat=\"on\"] { color: var(--r-ok); border-color: var(--r-ok); }\n.mwi-r-db[data-etat=\"attente\"] { color: var(--r-warn); border-color: var(--r-warn); }\n.mwi-r-dbpanel {\n    display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px;\n    background: var(--r-panel); border: 1px solid var(--r-accent); border-radius: 8px;\n}\n.mwi-r-dbpanel[hidden] { display: none; }\n.mwi-r-dbtitre { flex-basis: 100%; font-size: 11px; font-weight: 700; color: var(--r-gold); }\n.mwi-r-dbinfo { flex: 1; font-size: 12px; color: var(--r-ok); }\n.mwi-r-dbpanel[data-connecte=\"1\"] input, .mwi-r-dbpanel[data-connecte=\"1\"] #mwi-db-login,\n.mwi-r-dbpanel:not([data-connecte=\"1\"]) #mwi-db-sync, .mwi-r-dbpanel:not([data-connecte=\"1\"]) #mwi-db-logout { display: none; }\n/* Lecture seule (lecteur ou non connecté) : ni canaux, ni scan, ni vérification */\n#mwi-tracker-modal[data-role=\"lecteur\"] .mwi-r-chans-head,\n#mwi-tracker-modal[data-role=\"lecteur\"] .mwi-r-chans,\n#mwi-tracker-modal[data-role=\"lecteur\"] .mwi-r-progress,\n#mwi-tracker-modal[data-role=\"lecteur\"] .mwi-r-actions { display: none; }\n\n.mwi-r-chans-head { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--r-muted); }\n.mwi-r-chans { display: flex; flex-wrap: wrap; gap: 4px; }\n.mwi-r-chan {\n    display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;\n    font-size: 11px; cursor: pointer; user-select: none;\n    background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 10px;\n}\n.mwi-r-chan:has(input:checked) { border-color: var(--r-accent); color: var(--r-text); }\n.mwi-r-chan:not(:has(input:checked)) { color: var(--r-muted); opacity: .7; }\n.mwi-r-chan.iron:has(input:checked) { border-color: var(--r-warn); }\n.mwi-r-chan input { margin: 0; accent-color: var(--r-accent); }\n.mwi-r-chan-empty { font-size: 11px; font-style: italic; color: var(--r-muted); }\n.mwi-r-iron { font-size: 11px; font-weight: 700; color: var(--r-warn); margin-left: 4px; flex-shrink: 0; }\n.mwi-r-select {\n    flex: 0 1 150px; padding: 5px 8px; color: var(--r-text);\n    background: var(--r-panel); border: 1px solid var(--r-border);\n    border-radius: 5px; font-size: 12px; outline: none;\n}\n.mwi-r-select:focus { border-color: var(--r-accent); }\n\n.mwi-r-btn {\n    padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer;\n    color: var(--r-text); background: var(--r-panel-2);\n    border: 1px solid var(--r-border); border-radius: 5px;\n    transition: background .15s, border-color .15s, opacity .15s;\n}\n.mwi-r-btn:hover:not(:disabled) { border-color: var(--r-accent); background: #331a1f; }\n.mwi-r-btn.primary { color: #fff; background: var(--r-accent); border-color: var(--r-accent); }\n.mwi-r-btn.primary:hover:not(:disabled) { background: var(--r-accent-strong); }\n.mwi-r-btn:disabled { opacity: .55; cursor: not-allowed; }\n\n.mwi-r-list {\n    overflow-x: hidden; padding-right: 2px;\n    flex: 1; min-height: 120px; max-height: 320px; overflow-y: auto;\n    list-style: none; margin: 0; padding: 0;\n    display: grid; grid-template-columns: 1fr; gap: 6px; align-content: start;\n}\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-list {\n    max-height: none;\n    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));\n}\n.mwi-r-list::-webkit-scrollbar { width: 8px; }\n.mwi-r-list::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }\n\n.mwi-r-card {\n    padding: 8px 10px; background: var(--r-panel);\n    border: 1px solid var(--r-border); border-left: 3px solid var(--r-ok);\n    border-radius: 6px; min-width: 0;\n    transition: border-color .15s, background .15s;\n}\n.mwi-r-card.guild { border-left-color: var(--r-gold); }\n.mwi-r-card.fail { border-left-color: var(--r-err); }\n.mwi-r-card.pending { border-left-color: var(--r-muted); }\n.mwi-r-name { font-weight: 700; font-size: 14px; color: var(--r-text); display: flex; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; }\n.mwi-r-who { display: flex; align-items: center; min-width: 0; overflow: hidden; }\n.mwi-r-who .mwi-r-player { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.mwi-r-card:hover { background: var(--r-panel-2); border-color: var(--r-accent); }\n.mwi-r-tag { font-size: 11px; font-weight: 700; color: var(--r-muted); white-space: nowrap; }\n.mwi-r-card:not(.guild):not(.fail):not(.pending) .mwi-r-tag { color: var(--r-ok); }\n.mwi-r-card.fail .mwi-r-tag { color: var(--r-err); }\n.mwi-r-card.guild .mwi-r-tag { color: var(--r-gold); }\n.mwi-r-stats { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 5px; font-size: 12px; color: var(--r-muted); }\n.mwi-r-stats b { color: var(--r-text); font-weight: 600; }\n.mwi-r-sizes { display: flex; gap: 2px; padding: 2px; background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px; }\n.mwi-r-sizes .mwi-r-icon { border-color: transparent; color: var(--r-muted); }\n.mwi-r-sizes .mwi-r-icon.active { color: var(--r-accent); background: var(--r-panel-2); border-color: var(--r-accent); }\n.mwi-r-details { display: none; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 6px 0 0; font-size: 12px; }\n.mwi-r-details dt { color: var(--r-muted); }\n.mwi-r-details dd { margin: 0; color: var(--r-text); font-weight: 600; }\n\n/* Taille des cases : grandes = toutes les infos en liste, moyennes = bouton visible, petites = bouton au survol */\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-card { padding: 10px 12px; }\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-name { font-size: 15px; }\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-stats,\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-tag { display: none; }\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-details { display: grid; }\n#mwi-tracker-modal[data-size=\"large\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-profile,\n#mwi-tracker-modal[data-size=\"medium\"] .mwi-r-profile { visibility: visible; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card { padding: 4px 8px; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-name { font-size: 13px; align-items: center; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-stats { display: none; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-list { gap: 3px; }\n#mwi-tracker-modal[data-size=\"small\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card:hover .mwi-r-profile { visibility: visible; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card { border-left-width: 1px; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-tag { font-size: 0; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-tag::before {\n    content: ''; display: block; width: 8px; height: 8px; border-radius: 50%; background: currentColor;\n}\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card.pending .mwi-r-tag { color: var(--r-muted); }\n#mwi-tracker-modal[data-size=\"medium\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }\n.mwi-r-card[data-player] { cursor: pointer; }\n\n/* Fiche joueur */\n.mwi-r-pview { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 8px; }\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-pview { display: flex; }\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-list,\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-toolbar,\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-chans-head,\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-chans { display: none; }\n#mwi-tracker-modal[data-view=\"guilds\"] .mwi-r-list,\n#mwi-tracker-modal[data-view=\"guilds\"] .mwi-r-toolbar,\n#mwi-tracker-modal[data-view=\"guilds\"] .mwi-r-chans-head,\n#mwi-tracker-modal[data-view=\"guilds\"] .mwi-r-chans { display: none; }\n.mwi-r-phead { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--r-border); }\n.mwi-r-pname { flex: 1; min-width: 0; font-size: 17px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.mwi-r-pview .mwi-r-profile { visibility: visible; }\n.mwi-r-ptabs { display: flex; flex-wrap: wrap; gap: 4px; }\n.mwi-r-ptab {\n    padding: 4px 10px; font-size: 12px; font-weight: 700; cursor: pointer;\n    color: var(--r-muted); background: var(--r-panel);\n    border: 1px solid var(--r-border); border-radius: 14px;\n    transition: color .15s, border-color .15s, background .15s;\n}\n.mwi-r-ptab:hover { color: var(--r-text); border-color: var(--r-accent); }\n.mwi-r-ptab.active { color: #fff; background: var(--r-accent); border-color: var(--r-accent); }\n.mwi-r-pbody {\n    flex: 1; min-height: 140px; max-height: 360px; overflow-y: auto; padding: 10px 12px;\n    background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px;\n}\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-pbody,\n#mwi-tracker-modal[data-sized=\"1\"] .mwi-r-pbody { max-height: none; }\n.mwi-r-pbody::-webkit-scrollbar { width: 8px; }\n.mwi-r-pbody::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }\n.mwi-r-pgrid { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: 13px; }\n.mwi-r-pgrid dt { color: var(--r-muted); }\n.mwi-r-pgrid dd { margin: 0; font-weight: 700; }\n.mwi-r-pstat.free { color: var(--r-ok); }\n.mwi-r-pstat.guild { color: var(--r-gold); }\n.mwi-r-pstat.fail { color: var(--r-err); }\n.mwi-r-pstat.pending { color: var(--r-muted); }\n.mwi-r-ptab:focus { outline: none; }\n.mwi-r-rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 0 20px; margin: 0; font-size: 13px; }\n.mwi-r-row {\n    display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px;\n    padding: 6px 2px; border-bottom: 1px solid rgba(255,255,255,.06);\n}\n.mwi-r-row dt { color: var(--r-muted); }\n.mwi-r-row dd { margin: 0; font-weight: 700; color: var(--r-text); text-align: right; font-variant-numeric: tabular-nums; }\n.mwi-r-row.done dd { color: var(--r-ok); }\n.mwi-r-bar { flex-basis: 100%; height: 4px; background: var(--r-bg); border-radius: 2px; overflow: hidden; }\n.mwi-r-bar > div { height: 100%; background: var(--r-accent); border-radius: 2px; }\n.mwi-r-row.done .mwi-r-bar > div { background: var(--r-ok); }\n.mwi-r-solos { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 12px; }\n.mwi-r-solo-label { color: var(--r-muted); }\n.mwi-r-solo { padding: 2px 10px; font-weight: 700; color: var(--r-text); background: var(--r-bg); border: 1px solid var(--r-border); border-radius: 12px; }\n.mwi-r-solo-label ~ .mwi-r-solo { font-weight: 400; color: var(--r-muted); border-style: dashed; }\n/* Cases du profil : icône au centre, textes et badges dans les coins */\n.mwi-r-tiles {\n    --tile: 58px;\n    display: grid; grid-template-columns: repeat(auto-fill, var(--tile)); grid-auto-rows: var(--tile);\n    gap: 6px; margin-top: 10px; justify-content: start; overflow-x: auto; padding-bottom: 2px;\n}\n.mwi-r-tiles:first-child { margin-top: 0; }\n.mwi-r-tiles.placed { grid-template-columns: repeat(var(--cols), var(--tile)); }\n.mwi-r-tile {\n    position: relative; width: var(--tile); height: var(--tile);\n    display: flex; align-items: center; justify-content: center;\n    background: linear-gradient(160deg, var(--r-panel-2), var(--r-bg));\n    border: 1px solid var(--r-border); border-radius: 6px;\n    transition: border-color .15s, box-shadow .15s;\n}\n.mwi-r-tile:hover { border-color: var(--r-accent); box-shadow: 0 0 8px rgba(224, 52, 60, .35); }\n.mwi-r-tico { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; }\n.mwi-r-tico svg, .mwi-r-tico img { width: 40px; height: 40px; object-fit: contain; }\n.mwi-r-tt {\n    position: absolute; max-width: calc(100% - 4px); overflow: hidden; white-space: nowrap;\n    font-size: 11px; font-weight: 700; line-height: 1; color: var(--r-text);\n    text-shadow: 0 0 3px #000, 0 0 3px #000;\n}\n.mwi-r-tt.tl { top: 3px; left: 3px; }\n.mwi-r-tt.tc { top: 3px; left: 50%; transform: translateX(-50%); }\n.mwi-r-tt.tr { top: 3px; right: 3px; }\n.mwi-r-tt.bl { bottom: 3px; left: 3px; }\n.mwi-r-tt.bc { bottom: 3px; left: 50%; transform: translateX(-50%); }\n.mwi-r-tt.br { bottom: 3px; right: 3px; }\n.mwi-r-tt.plus { color: var(--r-warn); }\n.mwi-r-tt.num { color: var(--r-ok); }\n.mwi-r-tb { position: absolute; width: 16px; height: 16px; }\n.mwi-r-tb svg, .mwi-r-tb img { width: 16px; height: 16px; }\n.mwi-r-tb.tl { top: 2px; left: 2px; }\n.mwi-r-tb.tr { top: 2px; right: 2px; }\n.mwi-r-tb.bl { bottom: 2px; left: 2px; }\n.mwi-r-tb.br { bottom: 2px; right: 2px; }\n.mwi-r-tb.tc { top: 2px; left: calc(50% - 8px); }\n.mwi-r-tb.bc { bottom: 2px; left: calc(50% - 8px); }\n.mwi-r-tile.vide { background: none; border-style: dashed; opacity: .75; }\n.mwi-r-tname { padding: 2px; font-size: 9px; line-height: 1.15; text-align: center; color: var(--r-muted); overflow: hidden; }\n.mwi-r-sub { margin: 14px 0 6px; font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--r-muted); }\n.mwi-r-sub:first-child { margin-top: 0; }\n.mwi-r-psec .mwi-r-sub + .mwi-r-tiles, .mwi-r-sub + .mwi-r-tiles { margin-top: 0; }\n.mwi-r-pempty { margin: 10px 0 0; font-style: italic; color: var(--r-muted); font-size: 12px; }\n\n/* Petite fenêtre : un onglet à la fois. Modale large : toutes les sections répertoriées en colonnes, sans onglets */\n.mwi-r-pview { container-type: inline-size; container-name: mwi-pview; }\n.mwi-r-psec:not(.active) { display: none; }\n.mwi-r-psec-title { display: none; }\n@container mwi-pview (min-width: 880px) {\n    .mwi-r-ptabs { display: none; }\n    .mwi-r-pbody { padding: 0 4px 0 0; background: none; border: 0; border-radius: 0; }\n    .mwi-r-psecs { columns: 420px; column-gap: 12px; }\n    .mwi-r-psec, .mwi-r-psec:not(.active) {\n        display: block; break-inside: avoid; margin: 0 0 12px; padding: 12px 14px 14px;\n        background: linear-gradient(180deg, var(--r-panel-2), var(--r-panel) 46px);\n        border: 1px solid var(--r-border); border-top: 2px solid var(--r-accent); border-radius: 8px;\n        box-shadow: 0 2px 10px rgba(0,0,0,.35);\n    }\n    .mwi-r-psec-title {\n        display: flex; align-items: center; gap: 8px; margin: 0 0 12px;\n        font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--r-gold);\n    }\n    .mwi-r-psec-title::after { content: ''; flex: 1; height: 1px; background: var(--r-border); }\n    .mwi-r-psec .mwi-r-rows { grid-template-columns: 1fr; }\n    .mwi-r-psec .mwi-r-tiles { justify-content: center; }\n}\n/* Très grande modale : trois colonnes indépendantes (Skills | Résumé, Overview | Equipment), le reste réparti en dessous */\n.mwi-r-pcol { display: contents; }\n@container mwi-pview (min-width: 1200px) {\n    .mwi-r-psecs {\n        columns: auto; display: grid; gap: 12px; align-items: start;\n        grid-template-columns: minmax(0, .8fr) minmax(0, 1fr) minmax(400px, 1.1fr);\n    }\n    .mwi-r-pcol { display: flex; flex-direction: column; gap: 12px; min-width: 0; }\n    .mwi-r-psec, .mwi-r-psec:not(.active) { margin: 0; min-width: 0; }\n    /* Cases plus grandes, réparties sur toute la largeur de la section */\n    .mwi-r-psec .mwi-r-tiles {\n        --tile: clamp(58px, 4cqw, 72px); gap: 12px 8px; margin-top: 12px;\n        grid-template-columns: repeat(auto-fill, minmax(calc(var(--tile) + 14px), 1fr));\n        justify-content: stretch; justify-items: center;\n    }\n    .mwi-r-psec .mwi-r-tiles.placed { grid-template-columns: repeat(var(--cols), minmax(var(--tile), 1fr)); }\n    .mwi-r-psec .mwi-r-tico, .mwi-r-psec .mwi-r-tico svg, .mwi-r-psec .mwi-r-tico img { width: calc(var(--tile) - 18px); height: calc(var(--tile) - 18px); }\n    .mwi-r-psec .mwi-r-tt { font-size: 12px; }\n}\n\n/* Comparaison des guildes */\n.mwi-r-gview { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 8px; }\n#mwi-tracker-modal[data-view=\"guilds\"] .mwi-r-gview { display: flex; }\n.mwi-r-gcount { margin-left: 8px; font-size: 12px; font-weight: 400; color: var(--r-muted); }\n.mwi-r-gbody { flex: 1; min-height: 140px; max-height: 360px; overflow: auto; padding-right: 4px; }\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-gbody,\n#mwi-tracker-modal[data-sized=\"1\"] .mwi-r-gbody { max-height: none; }\n.mwi-r-gbody::-webkit-scrollbar { width: 8px; height: 8px; }\n.mwi-r-gbody::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }\n.mwi-r-gcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin-bottom: 12px; }\n.mwi-r-gcard {\n    padding: 10px 12px; cursor: pointer;\n    background: linear-gradient(180deg, var(--r-panel-2), var(--r-panel) 46px);\n    border: 1px solid var(--r-border); border-top: 2px solid var(--r-border); border-radius: 8px;\n    transition: border-color .15s;\n}\n.mwi-r-gcard:hover, .mwi-r-gcard.active { border-color: var(--r-accent); }\n.mwi-r-gcard h4 { margin: 0 0 4px; font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--r-gold); }\n.mwi-r-grank { font-size: 24px; font-weight: 700; line-height: 1.2; color: var(--r-text); }\n.mwi-r-gcard .mwi-r-rows { grid-template-columns: 1fr; font-size: 12px; }\n.mwi-r-rows + .mwi-r-gverdict { margin-top: 10px; }\n.mwi-r-gverdict { margin: 0 0 6px; padding: 5px 10px; font-size: 12px; font-weight: 700; color: var(--r-muted); background: var(--r-bg); border-left: 3px solid var(--r-muted); border-radius: 4px; }\n.mwi-r-gverdict.mieux { color: var(--r-err); border-left-color: var(--r-err); }\n.mwi-r-gverdict.moins { color: var(--r-ok); border-left-color: var(--r-ok); }\n.mwi-r-gverdict.egal { color: var(--r-warn); border-left-color: var(--r-warn); }\n.mwi-r-gtable { width: 100%; border-collapse: collapse; font-size: 12px; }\n.mwi-r-gtable th {\n    position: sticky; top: 0; z-index: 1; padding: 6px 8px; text-align: left; white-space: nowrap;\n    color: var(--r-muted); background: var(--r-panel-2); border-bottom: 2px solid var(--r-border);\n}\n.mwi-r-gtable th[data-action] { cursor: pointer; }\n.mwi-r-gtable th[data-action]:hover { color: var(--r-text); }\n.mwi-r-gtable th.active { color: var(--r-accent); border-bottom-color: var(--r-accent); }\n.mwi-r-gtable td { padding: 5px 8px; white-space: nowrap; border-bottom: 1px solid rgba(255,255,255,.05); }\n.mwi-r-gtable .n { text-align: right; font-variant-numeric: tabular-nums; }\n.mwi-r-gtable small { margin-left: 4px; color: var(--r-muted); }\n.mwi-r-gtable tbody tr:hover { background: var(--r-panel); }\n.mwi-r-gtable tr.moi td { font-weight: 700; color: var(--r-gold); background: var(--r-panel-2); border-bottom: 1px solid var(--r-accent); }\n\n.mwi-r-empty { padding: 18px 8px; text-align: center; font-style: italic; color: var(--r-muted); background: var(--r-panel); border: 1px dashed var(--r-border); border-radius: 6px; }\n\n.mwi-r-progress { height: 4px; background: var(--r-panel); border-radius: 2px; overflow: hidden; display: none; }\n.mwi-r-progress > div { height: 100%; width: 0; background: var(--r-accent); transition: width .2s; }\n\n.mwi-r-actions { display: flex; gap: 8px; }\n.mwi-r-actions { flex-wrap: wrap; }\n.mwi-r-actions .mwi-r-btn { flex: 1 1 0; white-space: nowrap; }\n.mwi-r-btn.actif { color: #fff; background: var(--r-gold); border-color: var(--r-gold); color: var(--r-bg); }\n\n.mwi-r-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 11px; color: var(--r-muted); }\n#mwi-status.ok { color: var(--r-ok); }\n#mwi-status.warn { color: var(--r-warn); }\n#mwi-status.err { color: var(--r-err); }\n\n#mwi-radar-launcher {\n    position: fixed; bottom: 16px; right: 16px; z-index: 99998; display: none;\n    width: 44px; height: 44px; align-items: center; justify-content: center;\n    font-size: 20px; cursor: pointer; color: var(--r-accent);\n    background: var(--r-panel); border: 1px solid var(--r-border);\n    border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,.5);\n}\n#mwi-radar-launcher:hover { border-color: var(--r-accent); background: var(--r-panel-2); }\n\n/* Voyant en ligne / hors ligne */\n.mwi-r-dot { display: inline-block; flex-shrink: 0; width: 8px; height: 8px; margin-right: 6px; vertical-align: middle; border-radius: 50%; background: var(--r-muted); opacity: .5; }\n.mwi-r-dot.on { background: var(--r-ok); opacity: 1; box-shadow: 0 0 6px var(--r-ok); }\n.mwi-r-dot.off { background: var(--r-err); opacity: .8; }\n.mwi-r-dot.masque { background: transparent; border: 1px solid var(--r-muted); }\n\n/* Recherche de joueur avec suggestions */\n.mwi-r-search { position: relative; flex: 1 1 160px; min-width: 140px; }\n.mwi-r-search .mwi-r-select { width: 100%; }\n.mwi-r-sugg {\n    display: none; position: absolute; top: calc(100% + 2px); left: 0; right: 0; z-index: 5;\n    max-height: 260px; overflow-y: auto; margin: 0; padding: 4px 0; list-style: none;\n    background: var(--r-panel); border: 1px solid var(--r-accent); border-radius: 6px;\n    box-shadow: 0 6px 16px rgba(0,0,0,.6); min-width: 220px;\n}\n.mwi-r-sugg.open { display: block; }\n.mwi-r-sugg li { display: flex; align-items: center; gap: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; white-space: nowrap; }\n.mwi-r-sugg li .nom { overflow: hidden; text-overflow: ellipsis; }\n.mwi-r-sugg li b { color: var(--r-accent); }\n.mwi-r-sugg li.actif, .mwi-r-sugg li:hover { background: var(--r-panel-2); }\n.mwi-r-sugg li.vide { cursor: default; font-style: italic; color: var(--r-muted); }\n.mwi-r-sugg-tag { margin-left: auto; padding-left: 8px; font-size: 11px; color: var(--r-muted); overflow: hidden; text-overflow: ellipsis; }\n.mwi-r-sugg-tag.free { color: var(--r-ok); }\n.mwi-r-sugg-tag.guild { color: var(--r-gold); }\n.mwi-r-sugg-tag.fail { color: var(--r-err); }\n"; // fabio-rh.css, inséré par tools/integrer-css.py
+    const CSS = "#mwi-tracker-modal, #mwi-radar-launcher {\n    --r-bg: #0c0a0b;\n    --r-panel: #171113;\n    --r-panel-2: #24161a;\n    --r-border: #4a1f25;\n    --r-accent: #e0343c;\n    --r-accent-strong: #b3151d;\n    --r-gold: #e8b64c;\n    --r-text: #f4ece6;\n    --r-muted: #a08a8c;\n    --r-ok: #4ecb8d;\n    --r-warn: #f0a950;\n    --r-err: #ff5a5f;\n    font-family: \"Roboto\", \"Segoe UI\", sans-serif;\n    box-sizing: border-box;\n}\n#mwi-tracker-modal *, #mwi-radar-launcher * { box-sizing: border-box; }\n\n#mwi-tracker-modal {\n    position: fixed; top: 60px; right: 12px; z-index: 99999;\n    width: 440px; max-width: calc(100vw - 16px);\n    display: flex; flex-direction: column;\n    background: var(--r-bg); color: var(--r-text);\n    border: 1px solid var(--r-border); border-radius: 10px;\n    box-shadow: 0 8px 24px rgba(0,0,0,.55);\n    overflow: hidden; font-size: 13px;\n}\n#mwi-tracker-modal[data-mode=\"max\"] {\n    top: 5vh !important; left: 5vw !important; right: auto !important;\n    width: 90vw !important; height: 88vh !important;\n}\n#mwi-tracker-modal[data-mode=\"min\"] { height: auto !important; }\n#mwi-tracker-modal[data-sized=\"1\"] .mwi-r-list { max-height: none; }\n#mwi-tracker-modal[data-mode=\"min\"] .mwi-r-body { display: none; }\n#mwi-tracker-modal[data-mode=\"min\"] { width: 260px; }\n\n.mwi-r-head {\n    display: flex; align-items: center; gap: 8px;\n    padding: 8px 10px; cursor: move; user-select: none;\n    background: linear-gradient(180deg, var(--r-panel-2), var(--r-panel));\n    border-bottom: 2px solid var(--r-accent);\n}\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-head { cursor: default; }\n.mwi-r-title { flex: 1; font-size: 14px; font-weight: 700; color: var(--r-accent); letter-spacing: .3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n.mwi-r-logo { width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; display: block; }\n#mwi-radar-launcher { padding: 0; overflow: hidden; }\n#mwi-radar-launcher .mwi-r-logo { width: 100%; height: 100%; }\n.mwi-r-player { cursor: pointer; }\n.mwi-r-player:hover { text-decoration: underline; }\n.mwi-r-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }\n.mwi-r-profile {\n    visibility: hidden; font-weight: 700;\n    padding: 3px 12px; font-size: 12px; letter-spacing: .3px; cursor: pointer;\n    color: #fff; background: var(--r-accent);\n    border: 1px solid var(--r-accent); border-radius: 4px;\n    box-shadow: 0 0 8px rgba(224, 52, 60, .45);\n    transition: background .15s, box-shadow .15s, transform .1s;\n}\n.mwi-r-profile:hover { text-decoration: none; background: var(--r-accent-strong); box-shadow: 0 0 12px rgba(224, 52, 60, .75); transform: translateY(-1px); }\n.mwi-r-badge {\n    min-width: 22px; padding: 1px 7px; text-align: center;\n    font-size: 12px; font-weight: 700; color: var(--r-bg);\n    background: var(--r-ok); border-radius: 10px;\n}\n.mwi-r-ctrl { display: flex; gap: 4px; }\n.mwi-r-icon {\n    width: 24px; height: 24px; padding: 0; line-height: 1;\n    display: flex; align-items: center; justify-content: center;\n    color: var(--r-text); background: transparent;\n    border: 1px solid var(--r-border); border-radius: 5px;\n    cursor: pointer; font-size: 14px; transition: background .15s, border-color .15s;\n}\n.mwi-r-icon:hover { background: var(--r-panel-2); border-color: var(--r-accent); }\n.mwi-r-icon.close:hover { background: var(--r-err); border-color: var(--r-err); }\n\n.mwi-r-body { display: flex; flex-direction: column; gap: 14px; padding: 14px; flex: 1; min-height: 0; }\n\n/* Barre du haut : recherche + icônes (guildes, copier, vider), puis filtres et taille des cases */\n.mwi-r-toolbar { display: flex; gap: 8px; align-items: center; }\n.mwi-r-toolbar .mwi-r-search { flex: 1; }\n.mwi-r-tools { display: flex; gap: 4px; flex-shrink: 0; }\n.mwi-r-tools .mwi-r-icon { width: 30px; height: 30px; font-size: 15px; }\n.mwi-r-filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }\n.mwi-r-filters .mwi-r-select { flex: 1 1 110px; }\n.mwi-r-filters .mwi-r-sizes { margin-left: auto; }\n.mwi-r-db[data-etat=\"off\"] { color: var(--r-muted); }\n.mwi-r-db[data-etat=\"on\"] { color: var(--r-ok); border-color: var(--r-ok); }\n.mwi-r-db[data-etat=\"attente\"] { color: var(--r-warn); border-color: var(--r-warn); }\n.mwi-r-dbpanel {\n    display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px;\n    background: var(--r-panel); border: 1px solid var(--r-accent); border-radius: 8px;\n}\n.mwi-r-dbpanel[hidden] { display: none; }\n.mwi-r-dbtitre { flex-basis: 100%; font-size: 11px; font-weight: 700; color: var(--r-gold); }\n.mwi-r-dbinfo { flex: 1; font-size: 12px; color: var(--r-ok); }\n.mwi-r-dbpanel[data-connecte=\"1\"] input, .mwi-r-dbpanel[data-connecte=\"1\"] #mwi-db-login,\n.mwi-r-dbpanel:not([data-connecte=\"1\"]) #mwi-db-sync, .mwi-r-dbpanel:not([data-connecte=\"1\"]) #mwi-db-logout { display: none; }\n/* Lecture seule (lecteur ou non connecté) : ni scan, ni vérification */\n#mwi-tracker-modal[data-role=\"lecteur\"] .mwi-r-progress,\n#mwi-tracker-modal[data-role=\"lecteur\"] .mwi-r-actions { display: none; }\n\n.mwi-r-iron { font-size: 11px; font-weight: 700; color: var(--r-warn); margin-left: 4px; flex-shrink: 0; }\n.mwi-r-select {\n    flex: 0 1 150px; padding: 5px 8px; color: var(--r-text);\n    background: var(--r-panel); border: 1px solid var(--r-border);\n    border-radius: 5px; font-size: 12px; outline: none;\n}\n.mwi-r-select:focus { border-color: var(--r-accent); }\n\n.mwi-r-btn {\n    padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer;\n    color: var(--r-text); background: var(--r-panel-2);\n    border: 1px solid var(--r-border); border-radius: 5px;\n    transition: background .15s, border-color .15s, opacity .15s;\n}\n.mwi-r-btn:hover:not(:disabled) { border-color: var(--r-accent); background: #331a1f; }\n.mwi-r-btn.primary { color: #fff; background: var(--r-accent); border-color: var(--r-accent); }\n.mwi-r-btn.primary:hover:not(:disabled) { background: var(--r-accent-strong); }\n.mwi-r-btn:disabled { opacity: .55; cursor: not-allowed; }\n\n.mwi-r-list {\n    overflow-x: hidden; padding-right: 2px;\n    flex: 1; min-height: 160px; max-height: 400px; overflow-y: auto;\n    list-style: none; margin: 0; padding: 0;\n    display: grid; grid-template-columns: 1fr; gap: 10px; align-content: start; padding-right: 4px;\n}\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-list {\n    max-height: none;\n    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));\n}\n.mwi-r-list::-webkit-scrollbar { width: 8px; }\n.mwi-r-list::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }\n\n.mwi-r-card {\n    padding: 12px 14px; background: var(--r-panel);\n    border: 1px solid var(--r-border); border-left: 3px solid var(--r-ok);\n    border-radius: 6px; min-width: 0;\n    transition: border-color .15s, background .15s;\n}\n.mwi-r-card.guild { border-left-color: var(--r-gold); }\n.mwi-r-card.fail { border-left-color: var(--r-err); }\n.mwi-r-card.pending { border-left-color: var(--r-muted); }\n.mwi-r-name { font-weight: 700; font-size: 14px; line-height: 1.3; color: var(--r-text); display: flex; justify-content: space-between; align-items: center; gap: 10px; min-width: 0; }\n.mwi-r-who { display: flex; align-items: center; min-width: 0; overflow: hidden; }\n.mwi-r-who .mwi-r-player { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.mwi-r-card:hover { background: var(--r-panel-2); border-color: var(--r-accent); }\n.mwi-r-tag { font-size: 11px; font-weight: 700; color: var(--r-muted); white-space: nowrap; }\n/* Niveau du skill choisi (ou du meilleur skill) */\n.mwi-r-lvl {\n    padding: 1px 7px; font-size: 11px; white-space: nowrap; color: var(--r-muted);\n    background: var(--r-bg); border: 1px solid var(--r-border); border-radius: 10px;\n}\n.mwi-r-lvl i { font-style: normal; }\n.mwi-r-lvl b { color: var(--r-gold); }\n/* Équipement du métier dans la pastille : ✨ outil celestial, 👕 haut, 👖 bas, 🔮 charme */\n.mwi-r-lvl .eq { margin-left: 5px; padding-left: 5px; border-left: 1px solid var(--r-border); color: var(--r-warn); font-weight: 700; letter-spacing: 1px; }\n.mwi-r-details .eq { color: var(--r-warn); letter-spacing: 1px; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-lvl i { display: none; }\n\n/* Liste + barre des skills à gauche, comme dans le jeu (icônes seules quand la modale est étroite) */\n.mwi-r-main { display: flex; gap: 12px; flex: 1; min-height: 0; container-type: inline-size; container-name: mwi-main; }\n.mwi-r-main .mwi-r-list { flex: 1; min-width: 0; }\n.mwi-r-skills {\n    display: flex; flex-direction: column; gap: 1px; flex-shrink: 0; width: 44px;\n    max-height: 400px; overflow-y: auto; overflow-x: hidden; scrollbar-width: none;\n    background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px;\n}\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-skills,\n#mwi-tracker-modal[data-sized=\"1\"] .mwi-r-skills { max-height: none; }\n.mwi-r-sk {\n    position: relative; display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 6px;\n    font-size: 13px; text-align: left; cursor: pointer; color: var(--r-text);\n    background: transparent; border: 0; border-left: 3px solid transparent;\n    transition: background .15s;\n}\n.mwi-r-sk:hover { background: var(--r-panel-2); }\n.mwi-r-sk.active { background: rgba(224, 52, 60, .28); border-left-color: var(--r-accent); }\n.mwi-r-sk.vide:not(.active) { opacity: .45; }\n.mwi-r-sk.titre { margin-top: 4px; border-top: 1px solid var(--r-border); }\n.mwi-r-sk .ico { width: 26px; height: 26px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 16px; }\n.mwi-r-sk .ico svg { width: 26px; height: 26px; }\n.mwi-r-sk .ico b { font-size: 11px; color: var(--r-muted); }\n.mwi-r-sk .nom { display: none; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.mwi-r-sk .nb {\n    position: absolute; right: 1px; bottom: 1px; min-width: 14px; padding: 0 3px;\n    font-size: 9px; font-weight: 700; line-height: 13px; text-align: center;\n    color: var(--r-bg); background: var(--r-gold); border-radius: 7px;\n}\n.mwi-r-sk.vide .nb { display: none; }\n@container mwi-main (min-width: 560px) {\n    .mwi-r-skills { width: 190px; }\n    .mwi-r-sk .nom { display: block; }\n    .mwi-r-sk.sous { padding-left: 18px; }\n    .mwi-r-sk .nb { position: static; font-size: 11px; line-height: 16px; padding: 0 6px; }\n    .mwi-r-sk.vide .nb { display: inline; background: none; color: var(--r-muted); }\n}\n.mwi-r-card:not(.guild):not(.fail):not(.pending) .mwi-r-tag { color: var(--r-ok); }\n.mwi-r-card.fail .mwi-r-tag { color: var(--r-err); }\n.mwi-r-card.guild .mwi-r-tag { color: var(--r-gold); }\n.mwi-r-stats { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin-top: 8px; font-size: 12px; color: var(--r-muted); }\n/* Pastille du skill : sur la ligne des stats (cases moyennes), à côté du nom pour les petites et grandes cases */\n.mwi-r-right .mwi-r-lvl { display: none; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-right .mwi-r-lvl,\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-right .mwi-r-lvl { display: inline; }\n.mwi-r-stats b { color: var(--r-text); font-weight: 600; }\n.mwi-r-sizes { display: flex; gap: 2px; padding: 2px; background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px; }\n.mwi-r-sizes .mwi-r-icon { border-color: transparent; color: var(--r-muted); }\n.mwi-r-sizes .mwi-r-icon.active { color: var(--r-accent); background: var(--r-panel-2); border-color: var(--r-accent); }\n.mwi-r-details { display: none; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 10px 0 0; font-size: 12px; }\n.mwi-r-details dt { color: var(--r-muted); }\n.mwi-r-details dd { margin: 0; color: var(--r-text); font-weight: 600; }\n\n/* Taille des cases : grandes = toutes les infos en liste, moyennes = stats sur une ligne, petites = nom seul */\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-card { padding: 12px 14px; }\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-name { font-size: 15px; }\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-stats,\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-tag { display: none; }\n#mwi-tracker-modal[data-size=\"large\"] .mwi-r-details { display: grid; }\n#mwi-tracker-modal[data-size=\"large\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card { padding: 6px 10px; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-name { font-size: 13px; align-items: center; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-stats { display: none; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-list { gap: 4px; }\n#mwi-tracker-modal[data-size=\"small\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card { border-left-width: 1px; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-tag { font-size: 0; }\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-tag::before {\n    content: ''; display: block; width: 8px; height: 8px; border-radius: 50%; background: currentColor;\n}\n#mwi-tracker-modal[data-size=\"small\"] .mwi-r-card.pending .mwi-r-tag { color: var(--r-muted); }\n#mwi-tracker-modal[data-size=\"medium\"][data-mode=\"max\"] .mwi-r-list { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }\n.mwi-r-card[data-player] { cursor: pointer; }\n\n/* Fiche joueur */\n.mwi-r-pview { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 8px; }\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-pview { display: flex; }\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-main,\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-list,\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-toolbar,\n#mwi-tracker-modal[data-view=\"profile\"] .mwi-r-filters { display: none; }\n#mwi-tracker-modal[data-view=\"guilds\"] .mwi-r-main,\n#mwi-tracker-modal[data-view=\"guilds\"] .mwi-r-list,\n#mwi-tracker-modal[data-view=\"guilds\"] .mwi-r-toolbar,\n#mwi-tracker-modal[data-view=\"guilds\"] .mwi-r-filters { display: none; }\n.mwi-r-phead { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--r-border); }\n.mwi-r-pname { flex: 1; min-width: 0; font-size: 17px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.mwi-r-pview .mwi-r-profile { visibility: visible; }\n.mwi-r-ptabs { display: flex; flex-wrap: wrap; gap: 4px; }\n.mwi-r-ptab {\n    padding: 4px 10px; font-size: 12px; font-weight: 700; cursor: pointer;\n    color: var(--r-muted); background: var(--r-panel);\n    border: 1px solid var(--r-border); border-radius: 14px;\n    transition: color .15s, border-color .15s, background .15s;\n}\n.mwi-r-ptab:hover { color: var(--r-text); border-color: var(--r-accent); }\n.mwi-r-ptab.active { color: #fff; background: var(--r-accent); border-color: var(--r-accent); }\n.mwi-r-pbody {\n    flex: 1; min-height: 140px; max-height: 360px; overflow-y: auto; padding: 10px 12px;\n    background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px;\n}\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-pbody,\n#mwi-tracker-modal[data-sized=\"1\"] .mwi-r-pbody { max-height: none; }\n.mwi-r-pbody::-webkit-scrollbar { width: 8px; }\n.mwi-r-pbody::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }\n.mwi-r-pgrid { display: grid; grid-template-columns: auto 1fr; gap: 8px 18px; margin: 0; font-size: 13px; }\n.mwi-r-pgrid dt { color: var(--r-muted); }\n.mwi-r-pgrid dd { margin: 0; font-weight: 700; }\n.mwi-r-pstat.free { color: var(--r-ok); }\n.mwi-r-pstat.guild { color: var(--r-gold); }\n.mwi-r-pstat.fail { color: var(--r-err); }\n.mwi-r-pstat.pending { color: var(--r-muted); }\n.mwi-r-ptab:focus { outline: none; }\n.mwi-r-rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 0 20px; margin: 0; font-size: 13px; }\n.mwi-r-row {\n    display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px;\n    padding: 6px 2px; border-bottom: 1px solid rgba(255,255,255,.06);\n}\n.mwi-r-row dt { color: var(--r-muted); }\n.mwi-r-row dd { margin: 0; font-weight: 700; color: var(--r-text); text-align: right; font-variant-numeric: tabular-nums; }\n.mwi-r-row.done dd { color: var(--r-ok); }\n.mwi-r-bar { flex-basis: 100%; height: 4px; background: var(--r-bg); border-radius: 2px; overflow: hidden; }\n.mwi-r-bar > div { height: 100%; background: var(--r-accent); border-radius: 2px; }\n.mwi-r-row.done .mwi-r-bar > div { background: var(--r-ok); }\n.mwi-r-solos { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 12px; }\n.mwi-r-solo-label { color: var(--r-muted); }\n.mwi-r-solo { padding: 2px 10px; font-weight: 700; color: var(--r-text); background: var(--r-bg); border: 1px solid var(--r-border); border-radius: 12px; }\n.mwi-r-solo-label ~ .mwi-r-solo { font-weight: 400; color: var(--r-muted); border-style: dashed; }\n/* Cases du profil : icône au centre, textes et badges dans les coins */\n.mwi-r-tiles {\n    --tile: 58px;\n    display: grid; grid-template-columns: repeat(auto-fill, var(--tile)); grid-auto-rows: var(--tile);\n    gap: 6px; margin-top: 10px; justify-content: start; overflow-x: auto; padding-bottom: 2px;\n}\n.mwi-r-tiles:first-child { margin-top: 0; }\n.mwi-r-tiles.placed { grid-template-columns: repeat(var(--cols), var(--tile)); }\n.mwi-r-tile {\n    position: relative; width: var(--tile); height: var(--tile);\n    display: flex; align-items: center; justify-content: center;\n    background: linear-gradient(160deg, var(--r-panel-2), var(--r-bg));\n    border: 1px solid var(--r-border); border-radius: 6px;\n    transition: border-color .15s, box-shadow .15s;\n}\n.mwi-r-tile:hover { border-color: var(--r-accent); box-shadow: 0 0 8px rgba(224, 52, 60, .35); }\n.mwi-r-tico { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; }\n.mwi-r-tico svg, .mwi-r-tico img { width: 40px; height: 40px; object-fit: contain; }\n.mwi-r-tt {\n    position: absolute; max-width: calc(100% - 4px); overflow: hidden; white-space: nowrap;\n    font-size: 11px; font-weight: 700; line-height: 1; color: var(--r-text);\n    text-shadow: 0 0 3px #000, 0 0 3px #000;\n}\n.mwi-r-tt.tl { top: 3px; left: 3px; }\n.mwi-r-tt.tc { top: 3px; left: 50%; transform: translateX(-50%); }\n.mwi-r-tt.tr { top: 3px; right: 3px; }\n.mwi-r-tt.bl { bottom: 3px; left: 3px; }\n.mwi-r-tt.bc { bottom: 3px; left: 50%; transform: translateX(-50%); }\n.mwi-r-tt.br { bottom: 3px; right: 3px; }\n.mwi-r-tt.plus { color: var(--r-warn); }\n.mwi-r-tt.num { color: var(--r-ok); }\n.mwi-r-tb { position: absolute; width: 16px; height: 16px; }\n.mwi-r-tb svg, .mwi-r-tb img { width: 16px; height: 16px; }\n.mwi-r-tb.tl { top: 2px; left: 2px; }\n.mwi-r-tb.tr { top: 2px; right: 2px; }\n.mwi-r-tb.bl { bottom: 2px; left: 2px; }\n.mwi-r-tb.br { bottom: 2px; right: 2px; }\n.mwi-r-tb.tc { top: 2px; left: calc(50% - 8px); }\n.mwi-r-tb.bc { bottom: 2px; left: calc(50% - 8px); }\n.mwi-r-tile.vide { background: none; border-style: dashed; opacity: .75; }\n.mwi-r-tname { padding: 2px; font-size: 9px; line-height: 1.15; text-align: center; color: var(--r-muted); overflow: hidden; }\n.mwi-r-sub { margin: 14px 0 6px; font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--r-muted); }\n.mwi-r-sub:first-child { margin-top: 0; }\n.mwi-r-psec .mwi-r-sub + .mwi-r-tiles, .mwi-r-sub + .mwi-r-tiles { margin-top: 0; }\n.mwi-r-pempty { margin: 10px 0 0; font-style: italic; color: var(--r-muted); font-size: 12px; }\n\n/* Petite fenêtre : un onglet à la fois. Modale large : toutes les sections répertoriées en colonnes, sans onglets */\n.mwi-r-pview { container-type: inline-size; container-name: mwi-pview; }\n.mwi-r-psec:not(.active) { display: none; }\n.mwi-r-psec-title { display: none; }\n@container mwi-pview (min-width: 880px) {\n    .mwi-r-ptabs { display: none; }\n    .mwi-r-pbody { padding: 0 4px 0 0; background: none; border: 0; border-radius: 0; }\n    .mwi-r-psecs { columns: 420px; column-gap: 12px; }\n    .mwi-r-psec, .mwi-r-psec:not(.active) {\n        display: block; break-inside: avoid; margin: 0 0 12px; padding: 12px 14px 14px;\n        background: linear-gradient(180deg, var(--r-panel-2), var(--r-panel) 46px);\n        border: 1px solid var(--r-border); border-top: 2px solid var(--r-accent); border-radius: 8px;\n        box-shadow: 0 2px 10px rgba(0,0,0,.35);\n    }\n    .mwi-r-psec-title {\n        display: flex; align-items: center; gap: 8px; margin: 0 0 12px;\n        font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--r-gold);\n    }\n    .mwi-r-psec-title::after { content: ''; flex: 1; height: 1px; background: var(--r-border); }\n    .mwi-r-psec .mwi-r-rows { grid-template-columns: 1fr; }\n    .mwi-r-psec .mwi-r-tiles { justify-content: center; }\n}\n/* Très grande modale : trois colonnes indépendantes (Skills | Résumé, Overview | Equipment), le reste réparti en dessous */\n.mwi-r-pcol { display: contents; }\n@container mwi-pview (min-width: 1200px) {\n    .mwi-r-psecs {\n        columns: auto; display: grid; gap: 12px; align-items: start;\n        grid-template-columns: minmax(0, .8fr) minmax(0, 1fr) minmax(400px, 1.1fr);\n    }\n    .mwi-r-pcol { display: flex; flex-direction: column; gap: 12px; min-width: 0; }\n    .mwi-r-psec, .mwi-r-psec:not(.active) { margin: 0; min-width: 0; }\n    /* Cases plus grandes, réparties sur toute la largeur de la section */\n    .mwi-r-psec .mwi-r-tiles {\n        --tile: clamp(58px, 4cqw, 72px); gap: 12px 8px; margin-top: 12px;\n        grid-template-columns: repeat(auto-fill, minmax(calc(var(--tile) + 14px), 1fr));\n        justify-content: stretch; justify-items: center;\n    }\n    .mwi-r-psec .mwi-r-tiles.placed { grid-template-columns: repeat(var(--cols), minmax(var(--tile), 1fr)); }\n    .mwi-r-psec .mwi-r-tico, .mwi-r-psec .mwi-r-tico svg, .mwi-r-psec .mwi-r-tico img { width: calc(var(--tile) - 18px); height: calc(var(--tile) - 18px); }\n    .mwi-r-psec .mwi-r-tt { font-size: 12px; }\n}\n\n/* Comparaison des guildes */\n.mwi-r-gview { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 8px; }\n#mwi-tracker-modal[data-view=\"guilds\"] .mwi-r-gview { display: flex; }\n.mwi-r-gcount { margin-left: 8px; font-size: 12px; font-weight: 400; color: var(--r-muted); }\n.mwi-r-gbody { flex: 1; min-height: 140px; max-height: 360px; overflow: auto; padding-right: 4px; }\n#mwi-tracker-modal[data-mode=\"max\"] .mwi-r-gbody,\n#mwi-tracker-modal[data-sized=\"1\"] .mwi-r-gbody { max-height: none; }\n.mwi-r-gbody::-webkit-scrollbar { width: 8px; height: 8px; }\n.mwi-r-gbody::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }\n.mwi-r-gcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin-bottom: 12px; }\n.mwi-r-gcard {\n    padding: 10px 12px; cursor: pointer;\n    background: linear-gradient(180deg, var(--r-panel-2), var(--r-panel) 46px);\n    border: 1px solid var(--r-border); border-top: 2px solid var(--r-border); border-radius: 8px;\n    transition: border-color .15s;\n}\n.mwi-r-gcard:hover, .mwi-r-gcard.active { border-color: var(--r-accent); }\n.mwi-r-gcard h4 { margin: 0 0 4px; font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--r-gold); }\n.mwi-r-grank { font-size: 24px; font-weight: 700; line-height: 1.2; color: var(--r-text); }\n.mwi-r-gcard .mwi-r-rows { grid-template-columns: 1fr; font-size: 12px; }\n.mwi-r-rows + .mwi-r-gverdict { margin-top: 10px; }\n.mwi-r-gverdict { margin: 0 0 6px; padding: 5px 10px; font-size: 12px; font-weight: 700; color: var(--r-muted); background: var(--r-bg); border-left: 3px solid var(--r-muted); border-radius: 4px; }\n.mwi-r-gverdict.mieux { color: var(--r-err); border-left-color: var(--r-err); }\n.mwi-r-gverdict.moins { color: var(--r-ok); border-left-color: var(--r-ok); }\n.mwi-r-gverdict.egal { color: var(--r-warn); border-left-color: var(--r-warn); }\n.mwi-r-gtable { width: 100%; border-collapse: collapse; font-size: 12px; }\n.mwi-r-gtable th {\n    position: sticky; top: 0; z-index: 1; padding: 6px 8px; text-align: left; white-space: nowrap;\n    color: var(--r-muted); background: var(--r-panel-2); border-bottom: 2px solid var(--r-border);\n}\n.mwi-r-gtable th[data-action] { cursor: pointer; }\n.mwi-r-gtable th[data-action]:hover { color: var(--r-text); }\n.mwi-r-gtable th.active { color: var(--r-accent); border-bottom-color: var(--r-accent); }\n.mwi-r-gtable td { padding: 5px 8px; white-space: nowrap; border-bottom: 1px solid rgba(255,255,255,.05); }\n.mwi-r-gtable .n { text-align: right; font-variant-numeric: tabular-nums; }\n.mwi-r-gtable small { margin-left: 4px; color: var(--r-muted); }\n.mwi-r-gtable tbody tr:hover { background: var(--r-panel); }\n.mwi-r-gtable tr.moi td { font-weight: 700; color: var(--r-gold); background: var(--r-panel-2); border-bottom: 1px solid var(--r-accent); }\n\n.mwi-r-empty { padding: 18px 8px; text-align: center; font-style: italic; color: var(--r-muted); background: var(--r-panel); border: 1px dashed var(--r-border); border-radius: 6px; }\n\n.mwi-r-progress { height: 4px; background: var(--r-panel); border-radius: 2px; overflow: hidden; display: none; }\n.mwi-r-progress > div { height: 100%; width: 0; background: var(--r-accent); transition: width .2s; }\n\n.mwi-r-actions { display: flex; gap: 8px; }\n.mwi-r-actions { flex-wrap: wrap; }\n.mwi-r-actions .mwi-r-btn { flex: 1 1 0; white-space: nowrap; }\n.mwi-r-btn.actif { color: #fff; background: var(--r-gold); border-color: var(--r-gold); color: var(--r-bg); }\n\n.mwi-r-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 11px; color: var(--r-muted); }\n#mwi-status.ok { color: var(--r-ok); }\n#mwi-status.warn { color: var(--r-warn); }\n#mwi-status.err { color: var(--r-err); }\n\n#mwi-radar-launcher {\n    position: fixed; bottom: 16px; right: 16px; z-index: 99998; display: none;\n    width: 44px; height: 44px; align-items: center; justify-content: center;\n    font-size: 20px; cursor: pointer; color: var(--r-accent);\n    background: var(--r-panel); border: 1px solid var(--r-border);\n    border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,.5);\n}\n#mwi-radar-launcher:hover { border-color: var(--r-accent); background: var(--r-panel-2); }\n\n/* Voyant en ligne / hors ligne */\n.mwi-r-dot { display: inline-block; flex-shrink: 0; width: 8px; height: 8px; margin-right: 6px; vertical-align: middle; border-radius: 50%; background: var(--r-muted); opacity: .5; }\n.mwi-r-dot.on { background: var(--r-ok); opacity: 1; box-shadow: 0 0 6px var(--r-ok); }\n.mwi-r-dot.off { background: var(--r-err); opacity: .8; }\n.mwi-r-dot.masque { background: transparent; border: 1px solid var(--r-muted); }\n.mwi-r-zz { margin-right: 6px; font-size: 11px; flex-shrink: 0; }\n/* Boutons « En ligne » et « Activité » (dernier /profile) */\n.mwi-r-dispo { padding: 5px 10px; font-weight: 600; white-space: nowrap; }\n\n/* Recherche de joueur avec suggestions */\n.mwi-r-search { position: relative; flex: 1 1 160px; min-width: 140px; }\n.mwi-r-search .mwi-r-select { width: 100%; }\n.mwi-r-sugg {\n    display: none; position: absolute; top: calc(100% + 2px); left: 0; right: 0; z-index: 5;\n    max-height: 260px; overflow-y: auto; margin: 0; padding: 4px 0; list-style: none;\n    background: var(--r-panel); border: 1px solid var(--r-accent); border-radius: 6px;\n    box-shadow: 0 6px 16px rgba(0,0,0,.6); min-width: 220px;\n}\n.mwi-r-sugg.open { display: block; }\n.mwi-r-sugg li { display: flex; align-items: center; gap: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; white-space: nowrap; }\n.mwi-r-sugg li .nom { overflow: hidden; text-overflow: ellipsis; }\n.mwi-r-sugg li b { color: var(--r-accent); }\n.mwi-r-sugg li.actif, .mwi-r-sugg li:hover { background: var(--r-panel-2); }\n.mwi-r-sugg li.vide { cursor: default; font-style: italic; color: var(--r-muted); }\n.mwi-r-sugg-tag { margin-left: auto; padding-left: 8px; font-size: 11px; color: var(--r-muted); overflow: hidden; text-overflow: ellipsis; }\n.mwi-r-sugg-tag.free { color: var(--r-ok); }\n.mwi-r-sugg-tag.guild { color: var(--r-gold); }\n.mwi-r-sugg-tag.fail { color: var(--r-err); }\n"; // fabio-rh.css, inséré par tools/integrer-css.py
 
     function loadUI() {
         try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch (e) { return {}; }
@@ -1005,6 +1006,17 @@
                     <button type="button" class="mwi-r-btn" id="mwi-db-logout">Déconnexion</button>
                 </form>
                 <div class="mwi-r-toolbar">
+                    <div class="mwi-r-search">
+                        <input type="text" class="mwi-r-select" id="mwi-search" placeholder="🔍 Rechercher un joueur" autocomplete="off" spellcheck="false">
+                        <ul class="mwi-r-sugg" id="mwi-search-list" role="listbox"></ul>
+                    </div>
+                    <div class="mwi-r-tools">
+                        <button class="mwi-r-icon" id="mwi-btn-guilds" title="Guildes : comparer notre guilde aux autres">🛡</button>
+                        <button class="mwi-r-icon" id="mwi-btn-copy" title="Copier les pseudos affichés">⧉</button>
+                        <button class="mwi-r-icon" id="mwi-btn-clear" title="Vider la liste">🗑</button>
+                    </div>
+                </div>
+                <div class="mwi-r-filters">
                     <select class="mwi-r-select" id="mwi-filter" title="Filtrer la liste">
                         <option value="free">Sans guilde</option>
                         <option value="guild">En guilde</option>
@@ -1017,25 +1029,18 @@
                         <option value="standard">Standard</option>
                         <option value="ironcow">🐄 Ironcow (IC)</option>
                     </select>
+                    <button class="mwi-r-btn mwi-r-dispo" id="mwi-btn-enligne" title="Statut au dernier /profile : tous, puis en ligne, puis hors ligne">⚪ En ligne</button>
+                    <button class="mwi-r-btn mwi-r-dispo" id="mwi-btn-activite" title="Activité au dernier /profile : tous, puis ceux qui font quelque chose, puis ceux qui ne font rien">Activité</button>
                     <div class="mwi-r-sizes" id="mwi-size" title="Taille des cases">
                         <button class="mwi-r-icon" data-size="large" title="Grandes cases : toutes les infos"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><rect x="1" y="1" width="14" height="6" rx="1"/><rect x="1" y="9" width="14" height="6" rx="1"/></svg></button>
                         <button class="mwi-r-icon" data-size="medium" title="Cases moyennes"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><rect x="1" y="1" width="14" height="4" rx="1"/><rect x="1" y="6" width="14" height="4" rx="1"/><rect x="1" y="11" width="14" height="4" rx="1"/></svg></button>
-                        <button class="mwi-r-icon" data-size="small" title="Petites cases : profil au survol"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><rect x="1" y="1" width="14" height="2" rx="1"/><rect x="1" y="4" width="14" height="2" rx="1"/><rect x="1" y="7" width="14" height="2" rx="1"/><rect x="1" y="10" width="14" height="2" rx="1"/><rect x="1" y="13" width="14" height="2" rx="1"/></svg></button>
+                        <button class="mwi-r-icon" data-size="small" title="Petites cases : nom seul"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><rect x="1" y="1" width="14" height="2" rx="1"/><rect x="1" y="4" width="14" height="2" rx="1"/><rect x="1" y="7" width="14" height="2" rx="1"/><rect x="1" y="10" width="14" height="2" rx="1"/><rect x="1" y="13" width="14" height="2" rx="1"/></svg></button>
                     </div>
-                    <div class="mwi-r-search">
-                        <input type="text" class="mwi-r-select" id="mwi-search" placeholder="🔍 Rechercher un joueur" autocomplete="off" spellcheck="false">
-                        <ul class="mwi-r-sugg" id="mwi-search-list" role="listbox"></ul>
-                    </div>
-                    <button class="mwi-r-btn" id="mwi-btn-guilds" title="Comparer notre guilde aux autres (données lues par le scan)">Guildes</button>
-                    <button class="mwi-r-btn" id="mwi-btn-copy" title="Copier les pseudos affichés">Copier</button>
-                    <button class="mwi-r-btn" id="mwi-btn-clear" title="Vider la liste">Vider</button>
                 </div>
-                <div class="mwi-r-chans-head">
-                    <span>Canaux à scanner</span>
-                    <button class="mwi-r-icon" id="mwi-btn-chans" title="Rafraîchir la liste des canaux">↻</button>
+                <div class="mwi-r-main">
+                    <nav class="mwi-r-skills" id="mwi-skills"></nav>
+                    <ul class="mwi-r-list" id="mwi-tracker-list"></ul>
                 </div>
-                <div class="mwi-r-chans" id="mwi-channels"></div>
-                <ul class="mwi-r-list" id="mwi-tracker-list"></ul>
                 <div class="mwi-r-pview" id="mwi-profile-view"></div>
                 <div class="mwi-r-gview" id="mwi-guild-view"></div>
                 <div class="mwi-r-progress" id="mwi-progress"><div id="mwi-progress-bar"></div></div>
@@ -1075,10 +1080,8 @@
         document.getElementById('mwi-btn-process').addEventListener('click', processUnverifiedProfiles);
         document.getElementById('mwi-btn-close').addEventListener('click', () => setVisible(false));
         launcher.addEventListener('click', () => setVisible(true));
-        // Bouton Profile : ouvre le profil dans le jeu ; clic sur la case : ouvre la fiche dans la modale
+        // Clic sur la case : ouvre la fiche dans la modale (le bouton Profile du jeu est dans la fiche)
         document.getElementById('mwi-tracker-list').addEventListener('click', e => {
-            const btn = e.target.closest('.mwi-r-profile');
-            if (btn) { openGameProfile(btn.dataset.player); return; }
             const card = e.target.closest('.mwi-r-card[data-player]');
             if (card) openProfileView(card.dataset.player);
         });
@@ -1118,6 +1121,39 @@
             saveUI({ modeFilter: currentMode });
             updateModalUI();
         });
+        // Barre des skills : un clic affiche les joueurs du skill, un second clic revient à tous les joueurs
+        currentSkill = saved.skillSort === 'combat_level' || SKILLS.includes(saved.skillSort) ? saved.skillSort : '';
+        document.getElementById('mwi-skills').addEventListener('click', e => {
+            const b = e.target.closest('[data-skill]');
+            if (!b) return;
+            currentSkill = b.dataset.skill === currentSkill ? '' : b.dataset.skill;
+            saveUI({ skillSort: currentSkill });
+            document.getElementById('mwi-tracker-list').scrollTop = 0;
+            updateModalUI();
+        });
+        // Filtres « En ligne » (tous → en ligne → hors ligne) et « Activité » (tous → fait quelque chose → ne fait rien), au dernier /profile
+        const enLigneBtn = document.getElementById('mwi-btn-enligne'), activiteBtn = document.getElementById('mwi-btn-activite');
+        filtreEnLigne = saved.filtreEnLigne === true ? 'on' : saved.filtreEnLigne in EN_LIGNE ? saved.filtreEnLigne : '';
+        filtreActivite = saved.filtreActivite in ACTIVITES ? saved.filtreActivite : '';
+        const majFiltresEtat = () => {
+            enLigneBtn.classList.toggle('actif', !!filtreEnLigne);
+            enLigneBtn.textContent = EN_LIGNE[filtreEnLigne];
+            activiteBtn.classList.toggle('actif', !!filtreActivite);
+            activiteBtn.textContent = ACTIVITES[filtreActivite];
+        };
+        majFiltresEtat();
+        enLigneBtn.addEventListener('click', () => {
+            filtreEnLigne = { '': 'on', on: 'off', off: '' }[filtreEnLigne];
+            saveUI({ filtreEnLigne });
+            majFiltresEtat();
+            updateModalUI();
+        });
+        activiteBtn.addEventListener('click', () => {
+            filtreActivite = { '': 'occupe', occupe: 'rien', rien: '' }[filtreActivite];
+            saveUI({ filtreActivite });
+            majFiltresEtat();
+            updateModalUI();
+        });
         const sizeBtns = document.querySelectorAll('#mwi-size button');
         const setSize = (size) => {
             modal.dataset.size = size;
@@ -1128,10 +1164,6 @@
             setSize(b.dataset.size);
             saveUI({ cardSize: b.dataset.size });
         }));
-        document.getElementById('mwi-btn-chans').addEventListener('click', renderChannels);
-        launcher.addEventListener('click', renderChannels);
-        renderChannels();
-        setTimeout(renderChannels, 5000); // le chat du jeu se charge après le script
         document.getElementById('mwi-btn-copy').addEventListener('click', copyVisibleNames);
         enableSearch();
         document.getElementById('mwi-btn-clear').addEventListener('click', () => {
@@ -1190,7 +1222,7 @@
             const valide = /^[a-zA-Z0-9_-]{2,30}$/.test(input.value.trim());
             list.innerHTML = choix.map((p, i) => {
                 const cat = playerCategory(p);
-                const tag = { free: 'Sans guilde', guild: p.guilde, fail: 'Illisible', pending: 'En attente' }[cat];
+                const tag = { free: 'Sans guilde', guild: p.guilde, fail: 'Illisible', pending: p.perime ? 'À revérifier' : 'En attente' }[cat];
                 const debut = p.nom.toLowerCase().indexOf(q);
                 const nom = esc(p.nom.slice(0, debut)) + '<b>' + esc(p.nom.slice(debut, debut + q.length)) + '</b>' + esc(p.nom.slice(debut + q.length));
                 return `<li class="${i === actif ? 'actif' : ''}" data-i="${i}" role="option">${voyant(p)}<span class="nom">${nom}</span>${p.ironcow ? ' 🐄' : ''}<span class="mwi-r-sugg-tag ${cat}">${esc(tag)}</span></li>`;
@@ -1239,7 +1271,7 @@
         renderProfileView();
         const p = recrues.get(username);
         if (p && !p.verifie && estRh()) verifierUn(p);
-        else if (p) dbFiche(p);
+        if (p && (p.verifie || p.perime)) dbFiche(p);
     }
 
     // Vérification d'un seul joueur à l'ouverture de sa fiche (sauf si un scan ou une vérification tourne déjà) :
@@ -1360,6 +1392,59 @@
 
     const SKILLS = ['milking', 'foraging', 'woodcutting', 'cheesesmithing', 'crafting', 'tailoring', 'cooking', 'brewing', 'alchemy',
         'enhancing', 'stamina', 'intelligence', 'attack', 'defense', 'melee', 'ranged', 'magic'];
+    const SKILLS_COMBAT = ['stamina', 'intelligence', 'attack', 'defense', 'melee', 'ranged', 'magic'];
+    // Niveau de chaque skill d'un profil brut : { milking: 106, brewing: 135, ... } (sans total_level), null s'il n'y en a pas
+    function niveauxProfil(brut) {
+        const niveaux = {};
+        ((brut && brut.characterSkills) || []).forEach(s => {
+            const k = hridName(s.skillHrid);
+            if (k && k !== 'total_level' && Number.isFinite(s.level)) niveaux[k] = s.level;
+        });
+        return Object.keys(niveaux).length ? niveaux : null;
+    }
+    // Skill où le joueur a le plus haut niveau (à égalité, le premier dans l'ordre du jeu) : { skill, niveau } ou null
+    function meilleurSkill(niveaux) {
+        let best = null;
+        SKILLS.forEach(k => { const n = niveaux && niveaux[k]; if (Number.isFinite(n) && (!best || n > best.niveau)) best = { skill: k, niveau: n }; });
+        return best;
+    }
+    // Tenue (haut + bas) de chaque métier dans le jeu : brewers_top, brewers_bottoms...
+    const TENUES = { milking: 'dairyhands', foraging: 'foragers', woodcutting: 'lumberjacks', cheesesmithing: 'cheesemakers', crafting: 'crafters', tailoring: 'tailors', cooking: 'chefs', brewing: 'brewers', alchemy: 'alchemists', enhancing: 'enhancers' };
+    // Équipement porté utile aux métiers : { brewing_tool: 'celestial_pot+8', body: 'brewers_top', legs: ..., charm: ... }, null si masqué
+    function equipementProfil(brut) {
+        if (!brut || brut.hideWearableItems) return null;
+        const eq = {};
+        Object.values(brut.wearableItemMap || {}).forEach(it => {
+            const loc = hridName(it.itemLocationHrid);
+            if (/_tool$/.test(loc) || ['body', 'legs', 'charm'].includes(loc)) eq[loc] = hridName(it.itemHrid) + (it.enhancementLevel > 0 ? '+' + it.enhancementLevel : '');
+        });
+        return Object.keys(eq).length ? eq : null;
+    }
+    // Équipement d'un métier : outil celestial (et son amélioration), haut et bas du métier, charme du métier.
+    // score : 2 pour l'outil celestial, 1 par pièce de tenue, 1 pour le charme
+    function equipementMetier(eq, skill) {
+        const r = { celeste: false, plus: 0, haut: false, bas: false, charme: '', score: 0 };
+        if (!eq || !TENUES[skill]) return r;
+        const outil = /^celestial_[a-z_]+(?:\+(\d+))?$/.exec(eq[skill + '_tool'] || '');
+        if (outil) { r.celeste = true; r.plus = +(outil[1] || 0); }
+        r.haut = (eq.body || '').split('+')[0] === TENUES[skill] + '_top';
+        r.bas = (eq.legs || '').split('+')[0] === TENUES[skill] + '_bottoms';
+        const charme = new RegExp(`^([a-z]+)_${skill}_charm`).exec(eq.charm || '');
+        if (charme) r.charme = charme[1];
+        r.score = (r.celeste ? 2 : 0) + r.haut + r.bas + (r.charme ? 1 : 0);
+        return r;
+    }
+    // Métier où le joueur produit le mieux : le mieux équipé, puis l'outil le plus amélioré, puis le plus haut niveau.
+    // { skill, niveau, eq } ou null sans équipement de métier
+    function meilleurMetier(niveaux, eq) {
+        let best = null;
+        Object.keys(TENUES).forEach(k => {
+            const e = equipementMetier(eq, k), n = (niveaux && niveaux[k]) || 0;
+            if (!e.score) return;
+            if (!best || (e.score - best.eq.score || e.plus - best.eq.plus || n - best.niveau) > 0) best = { skill: k, niveau: n, eq: e };
+        });
+        return best;
+    }
     const ROOMS = ['dairy_barn', 'garden', 'log_shed', 'forge', 'workshop', 'sewing_parlor', 'kitchen', 'brewery', 'laboratory',
         'observatory', 'dining_room', 'library', 'dojo', 'armory', 'gym', 'archery_range', 'mystical_study'];
     // Emplacement d'équipement -> [colonne, ligne], comme dans le jeu
@@ -1466,7 +1551,7 @@
         const p = currentProfile && recrues.get(currentProfile);
         if (!view || !p) return;
         const cat = playerCategory(p);
-        const statut = { free: 'Sans guilde', guild: 'En guilde', fail: 'Profil illisible', pending: 'En attente' }[cat];
+        const statut = { free: 'Sans guilde', guild: 'En guilde', fail: 'Profil illisible', pending: p.perime ? 'À revérifier' : 'En attente' }[cat];
         const nameStyle = p.color ? `color: ${p.color};` : '';
         const brut = profilsBruts.get(p.nom);
 
@@ -1474,6 +1559,8 @@
                 <dt>Statut</dt><dd class="mwi-r-pstat ${cat}">${statut}</dd>
                 <dt>Mode</dt><dd>${p.ironcow ? '🐄 Ironcow' : 'Standard'}</dd>
                 ${cat === 'guild' ? `<dt>Guilde</dt><dd>${esc(p.guilde)}</dd><dt>Rang</dt><dd>${esc(p.rang)}</dd>` : ''}
+                ${p.perime && p.guilde ? `<dt>Guilde (ancienne)</dt><dd>${esc(p.rang)} of ${esc(p.guilde)}</dd>` : ''}
+                ${p.derniereVerif ? `<dt>Vérifié</dt><dd>${dateVerif(p)}</dd>` : ''}
                 ${p.profil || brut ? '' : statsDl(p)}
             </dl>${guildCompareHtml((brut && brut.guildName) || (cat === 'guild' ? p.guilde : ''))}`;
         const dom = (p.profil && p.profil.sections) || [];
@@ -1639,15 +1726,40 @@
         }).join('')}</div>`;
     }
 
+    // « aujourd'hui », « il y a 3 j » ; au-delà du délai, signalé à revérifier
+    function dateVerif(p) {
+        const j = joursDepuis(p.derniereVerif);
+        return (j < 1 ? "aujourd'hui" : `il y a ${j} j`) + (p.perime ? ' (à revérifier)' : '');
+    }
+
     // Stats principales en lignes <dt>/<dd> (fiche joueur et grandes cases)
     const statsDl = (p) => `<dt>🛡️ Total</dt><dd>${esc(p.stats.total)}</dd><dt>⚔️ Combat</dt><dd>${esc(p.stats.combat)}</dd><dt>⏳ Age</dt><dd>${esc(p.stats.age)}</dd>`;
 
-    // Voyant en ligne / hors ligne, d'après les données du dernier /profile (gris si inconnu ou masqué par le joueur)
-    function voyant(p) {
+    // En ligne et activité au dernier /profile : profil brut de la session, sinon valeurs de la base.
+    // enLigne : true / false / null (masqué ou inconnu) ; activite : '' = ne fait rien, undefined = inconnue
+    function etatJoueur(p) {
         const c = (profilsBruts.get(p.nom) || {}).sharableCharacter;
-        const etat = !c ? 'inconnu' : c.hideOnlineStatus ? 'masque' : c.isOnline ? 'on' : 'off';
+        if (c) return { enLigne: c.hideOnlineStatus ? null : !!c.isOnline, masque: !!c.hideOnlineStatus, activite: hridName(c.actionType || '') };
+        return { enLigne: p.enLigne ?? null, masque: p.enLigne === null && p.activite !== undefined, activite: p.activite };
+    }
+    // Filtres « En ligne » et « Activité » ; un joueur dont l'état est inconnu n'y passe pas
+    function passeFiltresEtat(p) {
+        if (!filtreEnLigne && !filtreActivite) return true;
+        const e = etatJoueur(p);
+        if (filtreEnLigne === 'on' && e.enLigne !== true) return false;
+        if (filtreEnLigne === 'off' && e.enLigne !== false) return false;
+        if (filtreActivite === 'occupe' && !e.activite) return false;
+        if (filtreActivite === 'rien' && e.activite !== '') return false;
+        return true;
+    }
+
+    // Voyant en ligne / hors ligne (gris si inconnu ou masqué par le joueur), 💤 s'il ne faisait rien
+    function voyant(p) {
+        const e = etatJoueur(p);
+        const etat = e.enLigne === true ? 'on' : e.enLigne === false ? 'off' : e.masque ? 'masque' : 'inconnu';
         const titre = { on: 'En ligne', off: 'Hors ligne', masque: 'Statut masqué par le joueur', inconnu: 'Statut inconnu (profil pas encore vérifié)' }[etat];
-        return `<span class="mwi-r-dot ${etat}" title="${titre}"></span>`;
+        return `<span class="mwi-r-dot ${etat}" title="${titre} au dernier /profile"></span>`
+            + (e.activite === '' ? '<span class="mwi-r-zz" title="Ne faisait rien au dernier /profile">💤</span>' : '');
     }
 
     function playerCategory(p) {
@@ -1658,9 +1770,67 @@
 
     const matchesMode = (p) => currentMode === 'all' || (currentMode === 'ironcow') === !!p.ironcow;
 
-    function visiblePlayers() {
-        return Array.from(recrues.values()).filter(p =>
-            (currentFilter === 'all' || playerCategory(p) === currentFilter) && matchesMode(p));
+    // Niveau du joueur dans le skill choisi (ou son niveau de combat) ; null si inconnu
+    function niveauSkill(p, skill) {
+        const n = skill === 'combat_level' ? parseInt(p.stats.combat, 10) : p.niveaux && p.niveaux[skill];
+        return Number.isFinite(n) ? n : null;
+    }
+    // Joueur retenu pour un skill : niveau NIVEAU_MIN_SKILL ou plus, ou (métiers) outil celestial ou tenue du métier
+    const dansSkill = (p, skill) => {
+        if (niveauSkill(p, skill) >= NIVEAU_MIN_SKILL) return true;
+        const e = equipementMetier(p.equipement, skill);
+        return e.celeste || e.haut || e.bas;
+    };
+
+    // Joueurs affichés. Un skill choisi ne garde que les joueurs retenus pour ce skill :
+    // les mieux équipés d'abord (outil celestial, tenue, charme), puis l'outil le plus amélioré, puis le plus haut niveau
+    function visiblePlayers(skill = currentSkill) {
+        const players = Array.from(recrues.values()).filter(p =>
+            (currentFilter === 'all' || playerCategory(p) === currentFilter) && matchesMode(p) && passeFiltresEtat(p)
+            && (!skill || dansSkill(p, skill)));
+        if (!skill) return players;
+        const cle = (p) => { const e = equipementMetier(p.equipement, skill); return [e.score, e.plus, niveauSkill(p, skill) || 0]; };
+        return players.map(p => [p, cle(p)]).sort((a, b) => b[1][0] - a[1][0] || b[1][1] - a[1][1] || b[1][2] - a[1][2]).map(x => x[0]);
+    }
+
+    // Barre des skills, comme dans le jeu : icône, nom et nombre de joueurs à NIVEAU_MIN_SKILL ou plus (filtres compris)
+    function renderSkillBar() {
+        const bar = document.getElementById('mwi-skills');
+        if (!bar) return;
+        const players = visiblePlayers('');
+        const nbSkill = (k) => players.filter(p => dansSkill(p, k)).length;
+        const icone = (k) => spriteIcon('skills', k) || `<b>${esc(pretty(k).slice(0, 2))}</b>`;
+        const item = (k, ico, nom, n, cls = '') => `<button class="mwi-r-sk${cls}${k === currentSkill ? ' active' : ''}${n ? '' : ' vide'}" data-skill="${k}"
+                title="${esc(nom)}${k ? ` : ${n} joueur(s) niveau ${NIVEAU_MIN_SKILL}+${TENUES[k] ? ' ou équipé(s) pour ce métier' : ''}` : ''}"><span class="ico">${ico}</span><span class="nom">${esc(nom)}</span><span class="nb">${n}</span></button>`;
+        const scroll = bar.scrollTop;
+        bar.innerHTML = item('', '☰', 'Tous', players.length)
+            + SKILLS.filter(k => !SKILLS_COMBAT.includes(k)).map(k => item(k, icone(k), pretty(k), nbSkill(k))).join('')
+            + item('combat_level', spriteIcon('skills', 'combat') || '⚔️', 'Combat', nbSkill('combat_level'), ' titre')
+            + SKILLS_COMBAT.map(k => item(k, icone(k), pretty(k), nbSkill(k), ' sous')).join('');
+        bar.scrollTop = scroll;
+    }
+
+    // Équipement d'un métier en petites icônes : ✨ outil celestial (+N), 👕 haut, 👖 bas, 🔮 charme
+    const CHARMES = { trainee: 'T', basic: 'B', advanced: 'A', expert: 'E', master: 'M', grandmaster: 'GM' };
+    function equipementHtml(e) {
+        const it = [];
+        if (e.celeste) it.push(`<span title="Outil celestial${e.plus ? ' +' + e.plus : ''}">✨${e.plus ? '+' + e.plus : ''}</span>`);
+        if (e.haut) it.push('<span title="Haut du métier">👕</span>');
+        if (e.bas) it.push('<span title="Bas du métier">👖</span>');
+        if (e.charme) it.push(`<span title="Charme ${esc(pretty(e.charme))}">🔮${CHARMES[e.charme] || ''}</span>`);
+        return it.length ? `<span class="eq">${it.join('')}</span>` : '';
+    }
+
+    // Pastille sur la case : le skill choisi, sinon le métier où le joueur est le mieux équipé, sinon son meilleur skill
+    function skillChip(p) {
+        const m = meilleurSkill(p.niveaux), prod = meilleurMetier(p.niveaux, p.equipement);
+        const k = currentSkill || (prod && prod.skill) || (m && m.skill);
+        const n = k ? niveauSkill(p, k) : null;
+        const e = k ? equipementMetier(p.equipement, k) : { score: 0 };
+        if (n === null && !e.score) return '';
+        const nom = k === 'combat_level' ? 'Combat' : pretty(k);
+        const titre = `${nom}${n !== null ? ' niveau ' + n : ''}${m && k !== m.skill ? ` · meilleur niveau : ${pretty(m.skill)} ${m.niveau}` : ''}`;
+        return `<span class="mwi-r-lvl" title="${esc(titre)}"><i>${esc(nom)}</i> <b>${n !== null ? n : '?'}</b>${equipementHtml(e)}</span>`;
     }
 
     async function copyVisibleNames() {
@@ -1694,7 +1864,12 @@
         const ironCount = all.filter(p => p.ironcow).length;
         if (countsEl) countsEl.textContent = `${all.length} scannés (🐄 ${ironCount}) · ${counts.pending} en file`;
 
+        renderSkillBar();
         const players = visiblePlayers();
+        if (players.length === 0 && currentSkill) {
+            list.innerHTML = `<li class="mwi-r-empty">Aucun joueur niveau ${NIVEAU_MIN_SKILL}+ en ${esc(currentSkill === 'combat_level' ? 'Combat' : pretty(currentSkill))} avec ces filtres.</li>`;
+            return;
+        }
         if (players.length === 0) {
             const msgs = {
                 free: 'Aucun joueur sans guilde pour le moment.\nClique sur Scanner puis Vérifier.',
@@ -1703,33 +1878,38 @@
                 pending: 'Aucun joueur en attente.',
                 all: 'Aucun joueur scanné.'
             };
-            const modeHint = currentMode === 'all' ? '' : `\n(filtre : ${currentMode === 'ironcow' ? 'Ironcow' : 'Standard'})`;
+            const modeHint = (currentMode === 'all' ? '' : `\n(filtre : ${currentMode === 'ironcow' ? 'Ironcow' : 'Standard'})`)
+                + (filtreEnLigne ? `\n(filtre : ${EN_LIGNE[filtreEnLigne]})` : '') + (filtreActivite ? `\n(filtre : ${ACTIVITES[filtreActivite]})` : '');
             list.innerHTML = `<li class="mwi-r-empty" style="white-space: pre-line;">${msgs[currentFilter]}${modeHint}</li>`;
             return;
         }
 
         list.innerHTML = players.map(p => {
             const cat = playerCategory(p);
-            const tag = { free: 'Sans guilde', guild: `${esc(p.rang)} of ${esc(p.guilde)}`, fail: 'Profil illisible', pending: 'En attente' }[cat];
+            const tag = { free: 'Sans guilde', guild: `${esc(p.rang)} of ${esc(p.guilde)}`, fail: 'Profil illisible',
+                pending: p.perime ? `À revérifier · ${joursDepuis(p.derniereVerif)} j` : 'En attente' }[cat];
 
             const nameStyle = p.color ? `color: ${p.color}; text-shadow: 0px 1px 2px rgba(0,0,0,0.5);` : 'color: var(--r-text);';
 
-            const stats = (cat === 'free' || cat === 'guild') ? `
+            const stats = (cat === 'free' || cat === 'guild' || (p.perime && !p.echec)) ? `
                 <div class="mwi-r-stats">
+                    ${skillChip(p)}
                     <span>🛡️ Total <b>${esc(p.stats.total)}</b></span>
                     <span>⚔️ Combat <b>${esc(p.stats.combat)}</b></span>
-                    <span>⏳ Age <b>${esc(p.stats.age)}</b></span>
                 </div>` : '';
             // Détails affichés seulement avec les grandes cases
+            const meilleur = meilleurSkill(p.niveaux), production = meilleurMetier(p.niveaux, p.equipement);
             const details = `
                 <dl class="mwi-r-details">
                     <dt>Statut</dt><dd>${tag}</dd>
                     <dt>Mode</dt><dd>${p.ironcow ? '🐄 Ironcow' : 'Standard'}</dd>
                     ${cat === 'guild' ? `<dt>Guilde</dt><dd>${esc(p.guilde)}</dd><dt>Rang</dt><dd>${esc(p.rang)}</dd>` : ''}
                     ${(cat === 'free' || cat === 'guild') ? statsDl(p) : ''}
+                    ${meilleur ? `<dt>🏅 Meilleur</dt><dd>${esc(pretty(meilleur.skill))} ${meilleur.niveau}</dd>` : ''}
+                    ${production ? `<dt>🏭 Production</dt><dd>${esc(pretty(production.skill))} ${equipementHtml(production.eq)}</dd>` : ''}
                 </dl>`;
             return `<li class="mwi-r-card ${cat}" data-player="${esc(p.nom)}" title="Voir la fiche du joueur">
-                <div class="mwi-r-name"><span class="mwi-r-who">${voyant(p)}<span class="mwi-r-player" style="${nameStyle}">${esc(p.nom)}</span>${p.ironcow ? '<span class="mwi-r-iron" title="Ironcow">🐄</span>' : ''}</span><span class="mwi-r-right"><button class="mwi-r-profile" data-player="${esc(p.nom)}" title="Ouvrir le profil">Profile</button><span class="mwi-r-tag" title="${tag}">${tag}</span></span></div>
+                <div class="mwi-r-name"><span class="mwi-r-who"><span class="mwi-r-player" style="${nameStyle}">${esc(p.nom)}</span>${p.ironcow ? '<span class="mwi-r-iron" title="Ironcow">🐄</span>' : ''}</span><span class="mwi-r-right">${skillChip(p)}<span class="mwi-r-tag" title="${tag}">${tag}</span></span></div>
                 ${stats}
                 ${details}
             </li>`;
@@ -2034,6 +2214,8 @@
         playerData.guilde = result.guilde;
         playerData.rang = result.rang;
         playerData.stats = result.stats;
+        playerData.niveaux = niveauxProfil(profilsBruts.get(username)) || playerData.niveaux;
+        playerData.equipement = equipementProfil(profilsBruts.get(username)) || playerData.equipement;
         // Le badge [IC] du profil fait foi ; sinon on garde ce que le chat avait indiqué
         if (nameEl) playerData.ironcow = icFromDom;
         else if (result.ironcow) playerData.ironcow = true;
