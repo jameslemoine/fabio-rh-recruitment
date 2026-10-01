@@ -43,6 +43,16 @@ Ne jamais modifier `console-test.js` à la main.
 
 Pourquoi : Greasy Fork préfère des ressources externes figées, et Tampermonkey ne recharge un `@resource` que si `@version` change.
 
+## Règles du jeu sur l'automatisation (à respecter dans toute modification)
+
+Règles données par un membre de l'équipe MWI (Discord, 1er octobre 2026) :
+
+- Lire ce qui est déjà disponible (page affichée, messages reçus du WebSocket) : toujours autorisé.
+- Agir sur l'interface sans rien envoyer au serveur (préremplir un champ, ouvrir ou fermer une fenêtre) : autorisé.
+- Ne jamais déclencher à la place du joueur l'action qui envoie au serveur (valider avec Entrée, cliquer sur Envoyer…). C'est le joueur qui appuie.
+- Cliquer dans les menus et les onglets : autorisé, sauf ceux qui demandent des données au serveur. Avant d'automatiser un clic, vérifier dans le WebSocket qu'il n'envoie rien.
+- Les onglets du leaderboard et des guildes envoient une requête : le script ne doit pas les parcourir. Il lit seulement le classement que le joueur a ouvert lui-même.
+
 ## Conventions
 
 - Code et commentaires en français, dans le style existant.
