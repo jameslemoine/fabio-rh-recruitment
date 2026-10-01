@@ -41,6 +41,7 @@
     let isProcessing = false;
     let isScanning = false;
     let arretDemande = false; // bouton « Arrêter » pendant la vérification des profils
+    let enAttente = null; // pseudo dont la commande /profile est préremplie, en attente de la touche Entrée du joueur
     let currentFilter = 'free';
     let currentMode = 'all'; // 'all' | 'standard' | 'ironcow'
 
@@ -532,9 +533,11 @@
     }
 
     // ---------------------------------------------------------------
-    // 2. Envoyer la commande de profil
+    // 2. Préremplir la commande de profil
     // ---------------------------------------------------------------
-    window.mwiSendProfileCommand = function(username) {
+    // Règle du jeu : le script écrit la commande mais ne l'envoie jamais, c'est le joueur qui appuie sur Entrée.
+    // Renvoie le champ du chat (null s'il est introuvable)
+    function preremplirProfil(username) {
         // Sélecteurs testés un par un, par ordre de priorité (une liste unique renverrait le premier élément du DOM)
         const selectors = [
             '[class*="Chat_"] input[type="text"]',
@@ -548,7 +551,7 @@
             chatInput = Array.from(document.querySelectorAll(sel)).find(el => !el.closest('#mwi-tracker-modal'));
             if (chatInput) break;
         }
-        if (!chatInput) return false;
+        if (!chatInput) return null;
 
         const command = `/profile ${username}`;
 
@@ -562,14 +565,35 @@
 
         chatInput.dispatchEvent(new Event('input', { bubbles: true }));
         chatInput.dispatchEvent(new Event('change', { bubbles: true }));
+        // Curseur en fin de commande : le joueur n'a plus qu'à appuyer sur Entrée
+        chatInput.focus();
+        try { chatInput.setSelectionRange(command.length, command.length); } catch (e) { }
 
-        setTimeout(() => {
-            chatInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-            chatInput.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-        }, 30);
+        return chatInput;
+    }
 
-        return true;
-    };
+    // Vide le champ du chat s'il contient encore la commande préremplie (vérification arrêtée ou annulée)
+    function viderPreremplissage(chatInput, username) {
+        if (!chatInput || chatInput.value !== `/profile ${username}`) return;
+        const proto = chatInput instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+        const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+        if (setter) setter.call(chatInput, ''); else chatInput.value = '';
+        chatInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    // Attend que le joueur envoie la commande (le jeu vide le champ, ou le profil s'affiche), puis lit le profil.
+    // continuer() faux = attente abandonnée (bouton Arrêter, fiche fermée) : renvoie null
+    async function attendreEnvoi(chatInput, username, continuer) {
+        for (;;) {
+            if (!continuer()) { viderPreremplissage(chatInput, username); return null; }
+            if (!chatInput.isConnected || chatInput.value === '' || findProfileModal(username).el) break;
+            await sleep(POLL_MS);
+        }
+        limiteurProfils.marquerEnvoi();
+        enAttente = null;
+        setStatus(`Lecture du profil de ${username}...`, '');
+        return analyzeProfile(username);
+    }
 
     // ---------------------------------------------------------------
     // 3. Interface & Styles
@@ -748,7 +772,7 @@
                 <div class="mwi-r-progress" id="mwi-progress"><div id="mwi-progress-bar"></div></div>
                 <div class="mwi-r-actions">
                     <button class="mwi-r-btn" id="mwi-btn-scan" title="Scanne le chat puis le leaderboard du jeu">1. Scanner</button>
-                    <button class="mwi-r-btn primary" id="mwi-btn-process">2. Vérifier Profils</button>
+                    <button class="mwi-r-btn primary" id="mwi-btn-process" title="Prépare /profile dans le chat pour chaque joueur : appuie sur Entrée pour chacun">2. Vérifier Profils</button>
                 </div>
                 <div class="mwi-r-foot">
                     <span id="mwi-status">En attente d'action...</span>
@@ -854,8 +878,11 @@
     let currentProfile = null;
     let currentSection = 0;
 
+    // Bouton Profile : prépare la commande dans le chat, le joueur l'envoie lui-même
     function openGameProfile(username) {
-        if (!window.mwiSendProfileCommand(username)) setStatus('Champ de chat introuvable.', 'err');
+        if (isProcessing) { setStatus('Vérification en cours : attends la fin ou arrête-la.', 'warn'); return; }
+        if (preremplirProfil(username)) setStatus(`Appuie sur Entrée dans le chat du jeu pour ouvrir le profil de ${username}.`, 'ok');
+        else setStatus('Champ de chat introuvable.', 'err');
     }
     // Recherche de joueur : suggestions parmi les joueurs connus (début du pseudo d'abord),
     // flèches pour naviguer, Entrée ou clic pour ouvrir la fiche. Un pseudo inconnu est ajouté à la liste.
@@ -925,19 +952,25 @@
         if (p && !p.verifie) verifierUn(p);
     }
 
-    // Vérification d'un seul joueur à l'ouverture de sa fiche (sauf si un scan ou une vérification tourne déjà)
+    // Vérification d'un seul joueur à l'ouverture de sa fiche (sauf si un scan ou une vérification tourne déjà) :
+    // la commande est préremplie, le joueur l'envoie ; quitter la fiche annule l'attente
     async function verifierUn(p) {
         if (isProcessing || isScanning) return;
         isProcessing = true;
         const btn = document.getElementById('mwi-btn-process'), scanBtn = document.getElementById('mwi-btn-scan');
         btn.disabled = scanBtn.disabled = true;
         const spamWatch = startSpamWatch();
+        let chatInput = null;
         try {
             const o = await limiteurProfils.executer(() => {
-                setStatus(`Vérification de ${p.nom}...`, '');
-                return window.mwiSendProfileCommand(p.nom);
-            }, () => analyzeProfile(p.nom), p.nom, ok => ok);
+                chatInput = preremplirProfil(p.nom);
+                if (!chatInput) return false;
+                enAttente = p.nom;
+                setStatus(`Appuie sur Entrée dans le chat du jeu pour vérifier ${p.nom}.`, '');
+                if (currentProfile === p.nom) renderProfileView();
+            }, () => attendreEnvoi(chatInput, p.nom, () => currentProfile === p.nom), p.nom, ok => ok !== false);
             if (o.impossible) setStatus('Champ de chat introuvable.', 'err');
+            else if (o.res === null) setStatus(`Vérification de ${p.nom} annulée.`, '');
             else if (!o.res) { p.verifie = true; p.echec = true; setStatus(`Profil de ${p.nom} illisible.`, 'warn'); }
             else setStatus(`Profil de ${p.nom} vérifié.`, 'ok');
         } catch (e) {
@@ -945,9 +978,13 @@
         } finally {
             spamWatch.disconnect();
             isProcessing = false;
+            enAttente = null;
             btn.disabled = scanBtn.disabled = false;
             updateModalUI();
         }
+        // Fiche d'un autre joueur ouverte pendant l'attente : on prépare la sienne
+        const autre = currentProfile && recrues.get(currentProfile);
+        if (autre && autre !== p && !autre.verifie) verifierUn(autre);
     }
     function closeProfileView() {
         currentProfile = null;
@@ -1153,6 +1190,7 @@
         if (currentSection >= sections.length) currentSection = 0;
         const hint = p.profil || brut ? '' : `<p class="mwi-r-pempty">${p.verifie
             ? 'Détails non récupérés pour ce joueur : relance la vérification.'
+            : enAttente === p.nom ? 'Commande /profile prête dans le chat du jeu : appuie sur Entrée pour récupérer toutes les infos.'
             : isProcessing ? 'Vérification du profil en cours...'
             : 'Profil pas encore vérifié : clique sur « 2. Vérifier Profils » pour récupérer toutes les infos.'}</p>`;
 
@@ -1759,6 +1797,8 @@
     function creerLimiteur(nom) {
         let intervalle = INTERVALLE_MIN_MS, dernier = 0;
         return {
+            // L'envoi part plus tard que action() quand c'est le joueur qui valide : le délai compte depuis l'envoi réel
+            marquerEnvoi() { dernier = Date.now(); },
             async executer(action, attendre, prefix, reussi = () => false) {
                 for (let reprise = 0; ; reprise++) {
                     const wait = dernier + intervalle - Date.now();
@@ -1823,7 +1863,7 @@
         progress.style.display = 'block';
         bar.style.width = '0%';
 
-        let index = 0;
+        let index = 0, introuvable = false;
         const spamWatch = startSpamWatch();
         try {
             for (const data of queue) {
@@ -1832,11 +1872,16 @@
                 index++;
                 const prefix = `${index}/${toVerify}`;
 
+                // Le script prépare la commande, le joueur appuie sur Entrée dans le chat pour chaque profil
+                let chatInput = null;
                 const o = await limiteurProfils.executer(() => {
-                    setStatus(`Vérification ${prefix} : ${username}...`, '');
-                    return window.mwiSendProfileCommand(username);
-                }, () => analyzeProfile(username), prefix, ok => ok);
-                if (o.arrete) { index--; break; } // arrêté pendant l'attente : ce profil reste en file
+                    chatInput = preremplirProfil(username);
+                    if (!chatInput) return false;
+                    enAttente = username;
+                    setStatus(`${prefix} : appuie sur Entrée dans le chat du jeu pour vérifier ${username}.`, '');
+                }, () => attendreEnvoi(chatInput, username, () => !arretDemande), prefix, ok => ok !== false);
+                if (o.impossible) { index--; introuvable = true; break; }
+                if (o.arrete || o.res === null) { index--; break; } // arrêté pendant l'attente : ce profil reste en file
 
                 if (!o.res) {
                     data.verifie = true;
@@ -1845,7 +1890,8 @@
                 bar.style.width = `${Math.round((index / toVerify) * 100)}%`;
                 updateModalUI();
             }
-            setStatus(arretDemande ? `Vérification arrêtée (${index}/${toVerify} traités).` : 'Vérification terminée.', arretDemande ? 'warn' : 'ok');
+            if (introuvable) setStatus('Champ de chat introuvable.', 'err');
+            else setStatus(arretDemande ? `Vérification arrêtée (${index}/${toVerify} traités).` : 'Vérification terminée.', arretDemande ? 'warn' : 'ok');
         } catch (e) {
             log('Erreur pendant la vérification :', e);
             setStatus('Erreur pendant la vérification (voir console).', 'err');
@@ -1853,8 +1899,9 @@
             spamWatch.disconnect();
             isProcessing = false;
             arretDemande = false;
+            enAttente = null;
             btn.disabled = false;
-            btn.title = '';
+            btn.title = 'Prépare /profile dans le chat pour chaque joueur : appuie sur Entrée pour chacun';
             scanBtn.disabled = false;
             btn.textContent = '2. Vérifier Profils';
             progress.style.display = 'none';
