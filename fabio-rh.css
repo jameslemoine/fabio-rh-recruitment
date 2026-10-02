@@ -48,15 +48,6 @@
 .mwi-r-player { cursor: pointer; }
 .mwi-r-player:hover { text-decoration: underline; }
 .mwi-r-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-.mwi-r-profile {
-    visibility: hidden; font-weight: 700;
-    padding: 3px 12px; font-size: 12px; letter-spacing: .3px; cursor: pointer;
-    color: #fff; background: var(--r-accent);
-    border: 1px solid var(--r-accent); border-radius: 4px;
-    box-shadow: 0 0 8px rgba(224, 52, 60, .45);
-    transition: background .15s, box-shadow .15s, transform .1s;
-}
-.mwi-r-profile:hover { text-decoration: none; background: var(--r-accent-strong); box-shadow: 0 0 12px rgba(224, 52, 60, .75); transform: translateY(-1px); }
 .mwi-r-badge {
     min-width: 22px; padding: 1px 7px; text-align: center;
     font-size: 12px; font-weight: 700; color: var(--r-bg);
@@ -248,7 +239,6 @@
 #mwi-tracker-modal[data-view="stats"] .mwi-r-filters { display: none; }
 .mwi-r-phead { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--r-border); }
 .mwi-r-pname { flex: 1; min-width: 0; font-size: 17px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mwi-r-pview .mwi-r-profile { visibility: visible; }
 /* Bouton Recruter et choix du message privé */
 .mwi-r-recruter { flex-shrink: 0; white-space: nowrap; }
 .mwi-r-recrut { display: flex; flex-direction: column; gap: 6px; padding: 8px; background: var(--r-panel); border: 1px solid var(--r-gold); border-radius: 8px; }
