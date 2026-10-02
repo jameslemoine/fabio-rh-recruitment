@@ -48,15 +48,6 @@
 .mwi-r-player { cursor: pointer; }
 .mwi-r-player:hover { text-decoration: underline; }
 .mwi-r-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-.mwi-r-profile {
-    visibility: hidden; font-weight: 700;
-    padding: 3px 12px; font-size: 12px; letter-spacing: .3px; cursor: pointer;
-    color: #fff; background: var(--r-accent);
-    border: 1px solid var(--r-accent); border-radius: 4px;
-    box-shadow: 0 0 8px rgba(224, 52, 60, .45);
-    transition: background .15s, box-shadow .15s, transform .1s;
-}
-.mwi-r-profile:hover { text-decoration: none; background: var(--r-accent-strong); box-shadow: 0 0 12px rgba(224, 52, 60, .75); transform: translateY(-1px); }
 .mwi-r-badge {
     min-width: 22px; padding: 1px 7px; text-align: center;
     font-size: 12px; font-weight: 700; color: var(--r-bg);
@@ -241,10 +232,34 @@
 #mwi-tracker-modal[data-view="guilds"] .mwi-r-main,
 #mwi-tracker-modal[data-view="guilds"] .mwi-r-list,
 #mwi-tracker-modal[data-view="guilds"] .mwi-r-toolbar,
-#mwi-tracker-modal[data-view="guilds"] .mwi-r-filters { display: none; }
+#mwi-tracker-modal[data-view="guilds"] .mwi-r-filters,
+#mwi-tracker-modal[data-view="stats"] .mwi-r-main,
+#mwi-tracker-modal[data-view="stats"] .mwi-r-list,
+#mwi-tracker-modal[data-view="stats"] .mwi-r-toolbar,
+#mwi-tracker-modal[data-view="stats"] .mwi-r-filters { display: none; }
 .mwi-r-phead { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--r-border); }
 .mwi-r-pname { flex: 1; min-width: 0; font-size: 17px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mwi-r-pview .mwi-r-profile { visibility: visible; }
+/* Bouton Recruter et choix du message privé : les trois messages côte à côte quand la place le permet */
+.mwi-r-recruter { flex-shrink: 0; white-space: nowrap; }
+.mwi-r-recrut { flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px; background: var(--r-panel); border: 1px solid var(--r-gold); border-radius: 8px; }
+.mwi-r-recrut-tete { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+.mwi-r-recrut-titre { font-size: 13px; font-weight: 700; color: var(--r-gold); }
+.mwi-r-recrut .mwi-r-speriode button { padding: 3px 10px; font-size: 12px; }
+.mwi-r-msgs { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px; }
+.mwi-r-msg {
+    display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; cursor: pointer; text-align: left;
+    color: var(--r-text); background: var(--r-bg); border: 1px solid var(--r-border); border-radius: 6px;
+    font-size: 13px; line-height: 1.45; transition: border-color .15s, background .15s;
+}
+.mwi-r-msg:hover { border-color: var(--r-accent); background: var(--r-panel-2); }
+.mwi-r-msg.active { border-color: var(--r-accent); background: var(--r-panel-2); box-shadow: inset 3px 0 0 var(--r-accent); }
+.mwi-r-msg b { font-size: 12px; letter-spacing: .3px; text-transform: uppercase; color: var(--r-accent); }
+.mwi-r-msg span { color: var(--r-text); opacity: .85; }
+.mwi-r-msg.active span { opacity: 1; }
+/* .mwi-r-select donne flex: 0 1 150px : dans la colonne, la zone de texte ferait 150px de haut */
+.mwi-r-recrut-texte { flex: none; width: 100%; min-height: 52px; resize: vertical; font-family: inherit; font-size: 14px; line-height: 1.45; padding: 8px 10px; }
+.mwi-r-recrut-pied { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+.mwi-r-recrut-cmd { font-size: 12px; color: var(--r-muted); }
 .mwi-r-ptabs { display: flex; flex-wrap: wrap; gap: 4px; }
 .mwi-r-ptab {
     padding: 4px 10px; font-size: 12px; font-weight: 700; cursor: pointer;
@@ -411,6 +426,93 @@
 .mwi-r-gtable small { margin-left: 4px; color: var(--r-muted); }
 .mwi-r-gtable tbody tr:hover { background: var(--r-panel); }
 .mwi-r-gtable tr.moi td { font-weight: 700; color: var(--r-gold); background: var(--r-panel-2); border-bottom: 1px solid var(--r-accent); }
+
+/* Guildes, onglet Consultation : liste triable des guildes et fiche de la guilde choisie avec ses joueurs.
+   Modale étroite : la liste, puis la fiche à sa place ; modale large : les deux côte à côte */
+.mwi-r-gview { container-type: inline-size; container-name: mwi-gview; }
+.mwi-r-gcons { flex: 1; min-height: 140px; max-height: 360px; display: grid; grid-template-columns: 1fr; gap: 12px; }
+#mwi-tracker-modal[data-mode="max"] .mwi-r-gcons,
+#mwi-tracker-modal[data-sized="1"] .mwi-r-gcons { max-height: none; }
+.mwi-r-gcons[data-sel="1"] .mwi-r-glist, .mwi-r-gcons:not([data-sel="1"]) .mwi-r-gdetail { display: none; }
+.mwi-r-glist { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.mwi-r-gfiltres { display: flex; flex-wrap: wrap; gap: 6px; }
+.mwi-r-gfiltres .mwi-r-select { flex: 1 1 120px; min-width: 0; }
+.mwi-r-gitems { flex: 1; min-height: 0; overflow-y: auto; margin: 0; padding: 0 4px 0 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.mwi-r-gitems li {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; padding: 6px 10px; cursor: pointer;
+    background: var(--r-panel); border: 1px solid var(--r-border); border-left: 3px solid var(--r-border); border-radius: 6px;
+    transition: border-color .15s, background .15s;
+}
+.mwi-r-gitems li:hover { background: var(--r-panel-2); border-color: var(--r-accent); }
+.mwi-r-gitems li.active { background: var(--r-panel-2); border-color: var(--r-accent); border-left-color: var(--r-accent); }
+.mwi-r-gitems li.moi { border-left-color: var(--r-gold); }
+.mwi-r-gitems li.moi .nom { color: var(--r-gold); }
+.mwi-r-gitems li.vide { cursor: default; font-style: italic; color: var(--r-muted); }
+.mwi-r-gitems .nom { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.mwi-r-gitems .rk { font-size: 11px; font-weight: 700; color: var(--r-gold); white-space: nowrap; }
+.mwi-r-gitems .info { grid-column: 1 / -1; font-size: 11px; color: var(--r-muted); }
+.mwi-r-gdetail { min-height: 0; overflow-y: auto; padding-right: 4px; }
+.mwi-r-gitems::-webkit-scrollbar, .mwi-r-gdetail::-webkit-scrollbar { width: 8px; }
+.mwi-r-gitems::-webkit-scrollbar-thumb, .mwi-r-gdetail::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }
+.mwi-r-gdhead { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.mwi-r-gdhead h3 { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; color: var(--r-gold); }
+.mwi-r-gmoi { padding: 1px 8px; font-size: 11px; font-weight: 700; color: var(--r-bg); background: var(--r-gold); border-radius: 10px; white-space: nowrap; }
+.mwi-r-gdetail .mwi-r-kpis { margin-bottom: 4px; }
+.mwi-r-gmembres th[data-action] { cursor: pointer; }
+.mwi-r-gmembres tbody tr, .mwi-r-gtable tr[data-action] { cursor: pointer; }
+@container mwi-gview (min-width: 720px) {
+    .mwi-r-gcons { grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); }
+    .mwi-r-gcons[data-sel="1"] .mwi-r-glist { display: flex; }
+    .mwi-r-gcons:not([data-sel="1"]) .mwi-r-gdetail { display: block; }
+    .mwi-r-gretour { display: none; }
+}
+
+/* Statistiques : chiffres clés, nouveaux joueurs par jour, listes à jauges */
+.mwi-r-sview { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 8px; }
+#mwi-tracker-modal[data-view="stats"] .mwi-r-sview { display: flex; }
+.mwi-r-speriode { display: flex; gap: 2px; padding: 2px; background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px; }
+.mwi-r-speriode button { padding: 2px 8px; font-size: 11px; font-weight: 700; cursor: pointer; color: var(--r-muted); background: none; border: 1px solid transparent; border-radius: 4px; }
+.mwi-r-speriode button.active { color: var(--r-accent); background: var(--r-panel-2); border-color: var(--r-accent); }
+.mwi-r-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; margin-bottom: 12px; }
+.mwi-r-kpi { padding: 8px 10px; background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 8px; }
+.mwi-r-kpi b { display: block; font-size: 20px; line-height: 1.2; color: var(--r-text); font-variant-numeric: tabular-nums; }
+.mwi-r-kpi span { font-size: 11px; color: var(--r-muted); }
+.mwi-r-kpi.free b { color: var(--r-ok); }
+.mwi-r-sgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.mwi-r-scard {
+    min-width: 0; padding: 10px 12px;
+    background: linear-gradient(180deg, var(--r-panel-2), var(--r-panel) 46px);
+    border: 1px solid var(--r-border); border-top: 2px solid var(--r-accent); border-radius: 8px;
+}
+.mwi-r-scard.large { grid-column: 1 / -1; }
+.mwi-r-scard h4 { margin: 0 0 8px; font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--r-gold); }
+.mwi-r-scard h4 small { margin-left: 6px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--r-muted); }
+.mwi-r-legende { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 6px; font-size: 11px; color: var(--r-muted); }
+.mwi-r-legende i { display: inline-block; width: 10px; height: 10px; margin-right: 4px; vertical-align: -1px; border-radius: 2px; }
+/* Histogramme : une colonne par jour, segments empilés séparés par 2px */
+.mwi-r-histo { display: flex; align-items: flex-end; gap: 2px; height: 130px; padding-top: 16px; border-bottom: 1px solid var(--r-border); }
+.mwi-r-hcol { position: relative; flex: 1; min-width: 3px; height: 100%; display: flex; flex-direction: column-reverse; gap: 2px; cursor: default; }
+.mwi-r-hcol:hover { background: rgba(255,255,255,.04); }
+.mwi-r-hcol > div { flex-shrink: 0; }
+.mwi-r-hcol > div:last-of-type { border-radius: 3px 3px 0 0; }
+.mwi-r-hcol em { position: absolute; left: 50%; transform: translateX(-50%); font-style: normal; font-size: 10px; color: var(--r-text); white-space: nowrap; }
+.mwi-r-hjours { display: flex; gap: 2px; margin-top: 3px; font-size: 10px; color: var(--r-muted); }
+.mwi-r-hjours span { flex: 1; min-width: 3px; text-align: center; overflow: visible; white-space: nowrap; }
+.s-free { background: var(--r-ok); }
+.s-guild { background: var(--r-gold); }
+.s-autre { background: var(--r-muted); }
+.s-verif { background: var(--r-accent); }
+/* Listes à jauge : libellé, nombre, part des sans guilde */
+.mwi-r-blist { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: 12px; }
+.mwi-r-blist li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; }
+.mwi-r-blist li[data-action] { cursor: pointer; }
+.mwi-r-blist li[data-action]:hover .nom { color: var(--r-accent); }
+.mwi-r-blist .nom { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--r-text); }
+.mwi-r-blist .val { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--r-text); }
+.mwi-r-blist .val small { margin-left: 4px; font-weight: 400; color: var(--r-muted); }
+.mwi-r-blist .jauge { grid-column: 1 / -1; display: flex; gap: 2px; height: 6px; background: var(--r-bg); border-radius: 3px; overflow: hidden; }
+.mwi-r-blist .jauge > div { height: 100%; }
+.mwi-r-blist .jauge > div:last-child { border-radius: 0 3px 3px 0; }
 
 .mwi-r-empty { padding: 18px 8px; text-align: center; font-style: italic; color: var(--r-muted); background: var(--r-panel); border: 1px dashed var(--r-border); border-radius: 6px; }
 
