@@ -1,7 +1,7 @@
 // Fichier généré par tools/build-console.js - ne pas modifier à la main.
 // Coller tout le contenu dans la console du jeu (F12) pour tester sans Tampermonkey.
-// Version : 410bb74 - Panneau Recruter plus lisible et plus compact
-console.log('[Fabio RH] console-test :', "410bb74 - Panneau Recruter plus lisible et plus compact");
+// Version : 541df62 - Fabio RH 1.22
+console.log('[Fabio RH] console-test :', "541df62 - Fabio RH 1.22");
 (function() {
     'use strict';
 
