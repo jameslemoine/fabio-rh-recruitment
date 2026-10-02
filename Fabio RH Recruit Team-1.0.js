@@ -1291,10 +1291,10 @@
     const enumerer = (l, et) => l.length > 1 ? l.slice(0, -1).join(et === '、' ? '、' : ', ') + (et === '、' ? '、' : ` ${et} `) + l[l.length - 1] : l[0] || '';
     // Mots propres à chaque langue : nom d'un skill, équipement du métier, rang de la guilde
     const LANGUES = {
-        en: { nom: 'English', skill: pretty, et: 'and',
+        en: { nom: 'English', skill: (k) => pretty(k), et: 'and',
             eq: { celeste: (p) => `a celestial tool${p ? ' +' + p : ''}`, tenue: 'the full outfit', haut: 'the top', bas: 'the bottoms', charme: (c) => `a ${c} charm` },
             rang: (r) => ` (#${r.r} in ${r.c})` },
-        fr: { nom: 'Français', skill: pretty, et: 'et',
+        fr: { nom: 'Français', skill: (k) => pretty(k), et: 'et',
             eq: { celeste: (p) => `un outil celestial${p ? ' +' + p : ''}`, tenue: 'la tenue complète', haut: 'le haut', bas: 'le bas', charme: (c) => `un charme ${c}` },
             rang: (r) => ` (#${r.r} en ${r.c})` },
         zh: { nom: '中文', skill: (k) => SKILLS_ZH[k] || pretty(k), et: '、',
