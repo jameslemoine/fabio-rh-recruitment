@@ -259,8 +259,13 @@
     font-size: 12px; transition: border-color .15s, background .15s;
 }
 .mwi-r-msg:hover { border-color: var(--r-accent); background: var(--r-panel-2); }
+.mwi-r-msg.active { border-color: var(--r-accent); background: var(--r-panel-2); }
 .mwi-r-msg b { font-size: 11px; color: var(--r-accent); }
 .mwi-r-msg span { color: var(--r-muted); }
+.mwi-r-recrut-tete { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+.mwi-r-recrut-texte { width: 100%; min-height: 58px; resize: vertical; font-family: inherit; line-height: 1.4; }
+.mwi-r-recrut-pied { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+.mwi-r-recrut-cmd { font-size: 11px; color: var(--r-muted); }
 .mwi-r-ptabs { display: flex; flex-wrap: wrap; gap: 4px; }
 .mwi-r-ptab {
     padding: 4px 10px; font-size: 12px; font-weight: 700; cursor: pointer;
