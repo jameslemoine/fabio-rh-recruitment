@@ -241,7 +241,11 @@
 #mwi-tracker-modal[data-view="guilds"] .mwi-r-main,
 #mwi-tracker-modal[data-view="guilds"] .mwi-r-list,
 #mwi-tracker-modal[data-view="guilds"] .mwi-r-toolbar,
-#mwi-tracker-modal[data-view="guilds"] .mwi-r-filters { display: none; }
+#mwi-tracker-modal[data-view="guilds"] .mwi-r-filters,
+#mwi-tracker-modal[data-view="stats"] .mwi-r-main,
+#mwi-tracker-modal[data-view="stats"] .mwi-r-list,
+#mwi-tracker-modal[data-view="stats"] .mwi-r-toolbar,
+#mwi-tracker-modal[data-view="stats"] .mwi-r-filters { display: none; }
 .mwi-r-phead { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--r-border); }
 .mwi-r-pname { flex: 1; min-width: 0; font-size: 17px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mwi-r-pview .mwi-r-profile { visibility: visible; }
@@ -411,6 +415,53 @@
 .mwi-r-gtable small { margin-left: 4px; color: var(--r-muted); }
 .mwi-r-gtable tbody tr:hover { background: var(--r-panel); }
 .mwi-r-gtable tr.moi td { font-weight: 700; color: var(--r-gold); background: var(--r-panel-2); border-bottom: 1px solid var(--r-accent); }
+
+/* Statistiques : chiffres clés, nouveaux joueurs par jour, listes à jauges */
+.mwi-r-sview { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 8px; }
+#mwi-tracker-modal[data-view="stats"] .mwi-r-sview { display: flex; }
+.mwi-r-speriode { display: flex; gap: 2px; padding: 2px; background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px; }
+.mwi-r-speriode button { padding: 2px 8px; font-size: 11px; font-weight: 700; cursor: pointer; color: var(--r-muted); background: none; border: 1px solid transparent; border-radius: 4px; }
+.mwi-r-speriode button.active { color: var(--r-accent); background: var(--r-panel-2); border-color: var(--r-accent); }
+.mwi-r-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; margin-bottom: 12px; }
+.mwi-r-kpi { padding: 8px 10px; background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 8px; }
+.mwi-r-kpi b { display: block; font-size: 20px; line-height: 1.2; color: var(--r-text); font-variant-numeric: tabular-nums; }
+.mwi-r-kpi span { font-size: 11px; color: var(--r-muted); }
+.mwi-r-kpi.free b { color: var(--r-ok); }
+.mwi-r-sgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.mwi-r-scard {
+    min-width: 0; padding: 10px 12px;
+    background: linear-gradient(180deg, var(--r-panel-2), var(--r-panel) 46px);
+    border: 1px solid var(--r-border); border-top: 2px solid var(--r-accent); border-radius: 8px;
+}
+.mwi-r-scard.large { grid-column: 1 / -1; }
+.mwi-r-scard h4 { margin: 0 0 8px; font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--r-gold); }
+.mwi-r-scard h4 small { margin-left: 6px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--r-muted); }
+.mwi-r-legende { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 6px; font-size: 11px; color: var(--r-muted); }
+.mwi-r-legende i { display: inline-block; width: 10px; height: 10px; margin-right: 4px; vertical-align: -1px; border-radius: 2px; }
+/* Histogramme : une colonne par jour, segments empilés séparés par 2px */
+.mwi-r-histo { display: flex; align-items: flex-end; gap: 2px; height: 130px; padding-top: 16px; border-bottom: 1px solid var(--r-border); }
+.mwi-r-hcol { position: relative; flex: 1; min-width: 3px; height: 100%; display: flex; flex-direction: column-reverse; gap: 2px; cursor: default; }
+.mwi-r-hcol:hover { background: rgba(255,255,255,.04); }
+.mwi-r-hcol > div { flex-shrink: 0; }
+.mwi-r-hcol > div:last-of-type { border-radius: 3px 3px 0 0; }
+.mwi-r-hcol em { position: absolute; left: 50%; transform: translateX(-50%); font-style: normal; font-size: 10px; color: var(--r-text); white-space: nowrap; }
+.mwi-r-hjours { display: flex; gap: 2px; margin-top: 3px; font-size: 10px; color: var(--r-muted); }
+.mwi-r-hjours span { flex: 1; min-width: 3px; text-align: center; overflow: visible; white-space: nowrap; }
+.s-free { background: var(--r-ok); }
+.s-guild { background: var(--r-gold); }
+.s-autre { background: var(--r-muted); }
+.s-verif { background: var(--r-accent); }
+/* Listes à jauge : libellé, nombre, part des sans guilde */
+.mwi-r-blist { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: 12px; }
+.mwi-r-blist li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; }
+.mwi-r-blist li[data-action] { cursor: pointer; }
+.mwi-r-blist li[data-action]:hover .nom { color: var(--r-accent); }
+.mwi-r-blist .nom { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--r-text); }
+.mwi-r-blist .val { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--r-text); }
+.mwi-r-blist .val small { margin-left: 4px; font-weight: 400; color: var(--r-muted); }
+.mwi-r-blist .jauge { grid-column: 1 / -1; display: flex; gap: 2px; height: 6px; background: var(--r-bg); border-radius: 3px; overflow: hidden; }
+.mwi-r-blist .jauge > div { height: 100%; }
+.mwi-r-blist .jauge > div:last-child { border-radius: 0 3px 3px 0; }
 
 .mwi-r-empty { padding: 18px 8px; text-align: center; font-style: italic; color: var(--r-muted); background: var(--r-panel); border: 1px dashed var(--r-border); border-radius: 6px; }
 
