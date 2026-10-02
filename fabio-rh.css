@@ -416,6 +416,46 @@
 .mwi-r-gtable tbody tr:hover { background: var(--r-panel); }
 .mwi-r-gtable tr.moi td { font-weight: 700; color: var(--r-gold); background: var(--r-panel-2); border-bottom: 1px solid var(--r-accent); }
 
+/* Guildes, onglet Consultation : liste triable des guildes et fiche de la guilde choisie avec ses joueurs.
+   Modale étroite : la liste, puis la fiche à sa place ; modale large : les deux côte à côte */
+.mwi-r-gview { container-type: inline-size; container-name: mwi-gview; }
+.mwi-r-gcons { flex: 1; min-height: 140px; max-height: 360px; display: grid; grid-template-columns: 1fr; gap: 12px; }
+#mwi-tracker-modal[data-mode="max"] .mwi-r-gcons,
+#mwi-tracker-modal[data-sized="1"] .mwi-r-gcons { max-height: none; }
+.mwi-r-gcons[data-sel="1"] .mwi-r-glist, .mwi-r-gcons:not([data-sel="1"]) .mwi-r-gdetail { display: none; }
+.mwi-r-glist { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.mwi-r-gfiltres { display: flex; flex-wrap: wrap; gap: 6px; }
+.mwi-r-gfiltres .mwi-r-select { flex: 1 1 120px; min-width: 0; }
+.mwi-r-gitems { flex: 1; min-height: 0; overflow-y: auto; margin: 0; padding: 0 4px 0 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.mwi-r-gitems li {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; padding: 6px 10px; cursor: pointer;
+    background: var(--r-panel); border: 1px solid var(--r-border); border-left: 3px solid var(--r-border); border-radius: 6px;
+    transition: border-color .15s, background .15s;
+}
+.mwi-r-gitems li:hover { background: var(--r-panel-2); border-color: var(--r-accent); }
+.mwi-r-gitems li.active { background: var(--r-panel-2); border-color: var(--r-accent); border-left-color: var(--r-accent); }
+.mwi-r-gitems li.moi { border-left-color: var(--r-gold); }
+.mwi-r-gitems li.moi .nom { color: var(--r-gold); }
+.mwi-r-gitems li.vide { cursor: default; font-style: italic; color: var(--r-muted); }
+.mwi-r-gitems .nom { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.mwi-r-gitems .rk { font-size: 11px; font-weight: 700; color: var(--r-gold); white-space: nowrap; }
+.mwi-r-gitems .info { grid-column: 1 / -1; font-size: 11px; color: var(--r-muted); }
+.mwi-r-gdetail { min-height: 0; overflow-y: auto; padding-right: 4px; }
+.mwi-r-gitems::-webkit-scrollbar, .mwi-r-gdetail::-webkit-scrollbar { width: 8px; }
+.mwi-r-gitems::-webkit-scrollbar-thumb, .mwi-r-gdetail::-webkit-scrollbar-thumb { background: var(--r-border); border-radius: 4px; }
+.mwi-r-gdhead { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.mwi-r-gdhead h3 { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; color: var(--r-gold); }
+.mwi-r-gmoi { padding: 1px 8px; font-size: 11px; font-weight: 700; color: var(--r-bg); background: var(--r-gold); border-radius: 10px; white-space: nowrap; }
+.mwi-r-gdetail .mwi-r-kpis { margin-bottom: 4px; }
+.mwi-r-gmembres th[data-action] { cursor: pointer; }
+.mwi-r-gmembres tbody tr, .mwi-r-gtable tr[data-action] { cursor: pointer; }
+@container mwi-gview (min-width: 720px) {
+    .mwi-r-gcons { grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); }
+    .mwi-r-gcons[data-sel="1"] .mwi-r-glist { display: flex; }
+    .mwi-r-gcons:not([data-sel="1"]) .mwi-r-gdetail { display: block; }
+    .mwi-r-gretour { display: none; }
+}
+
 /* Statistiques : chiffres clés, nouveaux joueurs par jour, listes à jauges */
 .mwi-r-sview { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 8px; }
 #mwi-tracker-modal[data-view="stats"] .mwi-r-sview { display: flex; }
