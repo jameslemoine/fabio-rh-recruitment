@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fabio RH Recruit Team
 // @namespace    https://raw.githack.com/jameslemoine/fabio-rh-recruitment/main/Fabio%20RH%20Recruit%20Team-1.0.js
-// @version      1.21
+// @version      1.22
 // @description  RH Tool for guild-free player
 // @author       Yloise and Claude
 // @run-at       document-start
