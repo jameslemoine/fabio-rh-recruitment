@@ -239,23 +239,27 @@
 #mwi-tracker-modal[data-view="stats"] .mwi-r-filters { display: none; }
 .mwi-r-phead { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--r-border); }
 .mwi-r-pname { flex: 1; min-width: 0; font-size: 17px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Bouton Recruter et choix du message privé */
+/* Bouton Recruter et choix du message privé : les trois messages côte à côte quand la place le permet */
 .mwi-r-recruter { flex-shrink: 0; white-space: nowrap; }
-.mwi-r-recrut { display: flex; flex-direction: column; gap: 6px; padding: 8px; background: var(--r-panel); border: 1px solid var(--r-gold); border-radius: 8px; }
-.mwi-r-recrut-titre { font-size: 11px; font-weight: 700; color: var(--r-gold); }
+.mwi-r-recrut { flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px; background: var(--r-panel); border: 1px solid var(--r-gold); border-radius: 8px; }
+.mwi-r-recrut-tete { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+.mwi-r-recrut-titre { font-size: 13px; font-weight: 700; color: var(--r-gold); }
+.mwi-r-recrut .mwi-r-speriode button { padding: 3px 10px; font-size: 12px; }
+.mwi-r-msgs { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px; }
 .mwi-r-msg {
-    display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; cursor: pointer; text-align: left;
+    display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; cursor: pointer; text-align: left;
     color: var(--r-text); background: var(--r-bg); border: 1px solid var(--r-border); border-radius: 6px;
-    font-size: 12px; transition: border-color .15s, background .15s;
+    font-size: 13px; line-height: 1.45; transition: border-color .15s, background .15s;
 }
 .mwi-r-msg:hover { border-color: var(--r-accent); background: var(--r-panel-2); }
-.mwi-r-msg.active { border-color: var(--r-accent); background: var(--r-panel-2); }
-.mwi-r-msg b { font-size: 11px; color: var(--r-accent); }
-.mwi-r-msg span { color: var(--r-muted); }
-.mwi-r-recrut-tete { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
-.mwi-r-recrut-texte { width: 100%; min-height: 58px; resize: vertical; font-family: inherit; line-height: 1.4; }
+.mwi-r-msg.active { border-color: var(--r-accent); background: var(--r-panel-2); box-shadow: inset 3px 0 0 var(--r-accent); }
+.mwi-r-msg b { font-size: 12px; letter-spacing: .3px; text-transform: uppercase; color: var(--r-accent); }
+.mwi-r-msg span { color: var(--r-text); opacity: .85; }
+.mwi-r-msg.active span { opacity: 1; }
+/* .mwi-r-select donne flex: 0 1 150px : dans la colonne, la zone de texte ferait 150px de haut */
+.mwi-r-recrut-texte { flex: none; width: 100%; min-height: 52px; resize: vertical; font-family: inherit; font-size: 14px; line-height: 1.45; padding: 8px 10px; }
 .mwi-r-recrut-pied { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
-.mwi-r-recrut-cmd { font-size: 11px; color: var(--r-muted); }
+.mwi-r-recrut-cmd { font-size: 12px; color: var(--r-muted); }
 .mwi-r-ptabs { display: flex; flex-wrap: wrap; gap: 4px; }
 .mwi-r-ptab {
     padding: 4px 10px; font-size: 12px; font-weight: 700; cursor: pointer;
