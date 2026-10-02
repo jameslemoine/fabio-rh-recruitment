@@ -256,6 +256,9 @@
 .mwi-r-msg b { font-size: 12px; letter-spacing: .3px; text-transform: uppercase; color: var(--r-accent); }
 .mwi-r-msg span { color: var(--r-text); opacity: .85; }
 .mwi-r-msg.active span { opacity: 1; }
+.mwi-r-msg.perso b { display: flex; justify-content: space-between; align-items: center; gap: 6px; color: var(--r-gold); }
+.mwi-r-msg .mwi-r-msg-del { opacity: .6; padding: 0 4px; color: var(--r-muted); cursor: pointer; }
+.mwi-r-msg .mwi-r-msg-del:hover { opacity: 1; color: var(--r-err); }
 /* .mwi-r-select donne flex: 0 1 150px : dans la colonne, la zone de texte ferait 150px de haut */
 .mwi-r-recrut-texte { flex: none; width: 100%; min-height: 52px; resize: vertical; font-family: inherit; font-size: 14px; line-height: 1.45; padding: 8px 10px; }
 .mwi-r-recrut-pied { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
