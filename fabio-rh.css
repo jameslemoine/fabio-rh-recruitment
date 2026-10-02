@@ -249,6 +249,18 @@
 .mwi-r-phead { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--r-border); }
 .mwi-r-pname { flex: 1; min-width: 0; font-size: 17px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mwi-r-pview .mwi-r-profile { visibility: visible; }
+/* Bouton Recruter et choix du message privé */
+.mwi-r-recruter { flex-shrink: 0; white-space: nowrap; }
+.mwi-r-recrut { display: flex; flex-direction: column; gap: 6px; padding: 8px; background: var(--r-panel); border: 1px solid var(--r-gold); border-radius: 8px; }
+.mwi-r-recrut-titre { font-size: 11px; font-weight: 700; color: var(--r-gold); }
+.mwi-r-msg {
+    display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; cursor: pointer; text-align: left;
+    color: var(--r-text); background: var(--r-bg); border: 1px solid var(--r-border); border-radius: 6px;
+    font-size: 12px; transition: border-color .15s, background .15s;
+}
+.mwi-r-msg:hover { border-color: var(--r-accent); background: var(--r-panel-2); }
+.mwi-r-msg b { font-size: 11px; color: var(--r-accent); }
+.mwi-r-msg span { color: var(--r-muted); }
 .mwi-r-ptabs { display: flex; flex-wrap: wrap; gap: 4px; }
 .mwi-r-ptab {
     padding: 4px 10px; font-size: 12px; font-weight: 700; cursor: pointer;
