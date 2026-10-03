@@ -73,7 +73,6 @@
 .mwi-r-tools .mwi-r-icon { width: 30px; height: 30px; font-size: 15px; }
 .mwi-r-filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .mwi-r-filters .mwi-r-select { flex: 1 1 110px; }
-#mwi-skill-filter.actif { border-color: var(--r-accent); color: #fff; box-shadow: 0 0 6px rgba(224, 52, 60, .45); }
 /* Niveau minimum du métier : champ + niveaux prédéfinis */
 .mwi-r-niveau { display: flex; align-items: center; gap: 2px; padding: 2px 2px 2px 8px; background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px; }
 .mwi-r-niveau span { margin-right: 4px; font-size: 11px; font-weight: 700; color: var(--r-muted); }
