@@ -1,7 +1,7 @@
 // Fichier généré par tools/build-console.js - ne pas modifier à la main.
 // Coller tout le contenu dans la console du jeu (F12) pour tester sans Tampermonkey.
-// Version : b7302bc - Menu déroulant Métier retiré
-console.log('[Fabio RH] console-test :', "b7302bc - Menu déroulant Métier retiré");
+// Version : b14bf58 - Fabio RH 1.23
+console.log('[Fabio RH] console-test :', "b14bf58 - Fabio RH 1.23");
 (function() {
     'use strict';
 
