@@ -74,6 +74,19 @@
 .mwi-r-filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .mwi-r-filters .mwi-r-select { flex: 1 1 110px; }
 #mwi-skill-filter.actif { border-color: var(--r-accent); color: #fff; box-shadow: 0 0 6px rgba(224, 52, 60, .45); }
+/* Niveau minimum du métier : champ + niveaux prédéfinis */
+.mwi-r-niveau { display: flex; align-items: center; gap: 2px; padding: 2px 2px 2px 8px; background: var(--r-panel); border: 1px solid var(--r-border); border-radius: 6px; }
+.mwi-r-niveau span { margin-right: 4px; font-size: 11px; font-weight: 700; color: var(--r-muted); }
+.mwi-r-niveau input {
+    width: 46px; padding: 2px 4px; font: inherit; font-size: 12px; font-weight: 700; text-align: center;
+    color: var(--r-gold); background: var(--r-bg); border: 1px solid var(--r-border); border-radius: 4px; outline: none;
+    -moz-appearance: textfield; appearance: textfield;
+}
+.mwi-r-niveau input::-webkit-inner-spin-button, .mwi-r-niveau input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.mwi-r-niveau input:focus { border-color: var(--r-accent); }
+.mwi-r-niveau button { padding: 2px 7px; font-size: 11px; font-weight: 700; cursor: pointer; color: var(--r-muted); background: none; border: 1px solid transparent; border-radius: 4px; }
+.mwi-r-niveau button:hover { color: var(--r-text); }
+.mwi-r-niveau button.active { color: var(--r-accent); background: var(--r-panel-2); border-color: var(--r-accent); }
 .mwi-r-filters .mwi-r-sizes { margin-left: auto; }
 .mwi-r-db[data-etat="off"] { color: var(--r-muted); }
 .mwi-r-db[data-etat="on"] { color: var(--r-ok); border-color: var(--r-ok); }
